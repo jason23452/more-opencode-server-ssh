@@ -1,13 +1,14 @@
 # sshdeck
 
-跨平台的本機 SSH 主機管理工具。提供 CLI、瀏覽器主機設定、SSH 登入檢查及單次遠端命令；互動終端機另由後續功能票單處理。
+跨平台的本機 SSH 主機管理工具。提供 CLI、瀏覽器主機設定、SSH 登入檢查、加密金鑰生命週期、單次遠端命令、互動終端機及 Docker 能力診斷。
 
 ## 執行需求與安裝
 
 - Node.js 20 以上；SSH 用戶端採用純 JavaScript 的 `ssh2` 套件。
+- 從下載／clone 的專案根目錄執行 `npm ci` 安裝相依套件；不需發佈至公開 npm registry。
 - 可直接執行 `node bin/sshdeck.js host list` 或 `node bin/sshdeck.js ui`。
-- 使用 npm 安裝 CLI：`npm install -g .`，之後可執行 `sshdeck host list` 或 `sshdeck ui`。
-- 執行測試：`npm test`。
+- 也可在專案根目錄執行 `npm install -g .` 安裝 CLI，之後使用 `sshdeck host list` 或 `sshdeck ui`。
+- 執行完整測試：`npm test`。
 
 ## 主機設定與 SSH 檢查
 
@@ -56,3 +57,29 @@ CLI 在需要時會以隱藏輸入方式詢問私鑰密語。密語不寫入設�
 服務只監聽 `127.0.0.1`，並拒絕非本機 `Host` 或不符合本機來源的瀏覽器請求，不提供遠端執行端點。登入私鑰只由本機 Node.js 程序讀取；不會傳回瀏覽器。
 
 主機設定、主機指紋信任及檢查狀態位於各平台慣用的使用者資料目錄：Windows 使用 `%APPDATA%`，macOS 使用 `~/Library/Application Support`，Linux 使用 `$XDG_DATA_HOME`（未設定時使用 `~/.local/share`）。可設定 `SSHDECK_HOME` 指定其他資料目錄。macOS 是相容性目標，但本輪未實測；請勿將其視為已驗證平台。
+
+## 備份與還原
+
+先停止 `sshdeck ui`（Ctrl+C），再備份整個 sshdeck 資料目錄，而非只複製 `hosts.json`：其中包含主機設定、host key 信任、檢查狀態、sshdeck 管理的私鑰／公鑰及金鑰 registry。預設資料根目錄為 Windows `%APPDATA%\sshdeck`、macOS `~/Library/Application Support/sshdeck`、Linux `$XDG_DATA_HOME/sshdeck`（預設 `~/.local/share/sshdeck`）；設定 `SSHDECK_HOME` 時，備份該變數指定的目錄內容。
+
+範例（先確認來源及備份目的地符合你的環境）：
+
+```powershell
+robocopy "$env:APPDATA\sshdeck" "$env:USERPROFILE\sshdeck-backup" /E /COPY:DATS
+```
+
+```sh
+cp -a "${XDG_DATA_HOME:-$HOME/.local/share}/sshdeck" "$HOME/sshdeck-backup"
+```
+
+還原時停止 sshdeck，將備份目錄內容複製回原資料目錄，或將 `SSHDECK_HOME` 設為還原目錄；然後重啟 CLI/UI。
+
+金鑰有密語加密且私鑰 ACL／mode 受限，但備份仍須存放於可信、受存取控制的位置。備份／還原時保留私鑰 ACL 與 Unix mode，並於還原後確認目錄為 0700、私鑰為 0600（Windows 請確認只有預期使用者可讀取）。外部既有私鑰只保存路徑，須另行備份該私鑰並確保還原後路徑可讀。若還原主機設定後遠端 host key 已改變，請透過可信管道重新核對，勿直接忽略指紋警告。
+
+## 安全與診斷
+
+Web 服務與終端機 WebSocket 僅綁定 loopback，檢查 Host／Origin；不要用反向代理、tunnel 或網路埠轉發將個人本機服務公開。SSH 連線使用端點範圍 host key trust；無可信管道可比對指紋時，應拒絕首次連線並先向主機管理者確認。密語不持久保存，服務重啟後須重新解鎖。
+
+`host check` 分開顯示 SSH 與 Docker。SSH 失敗時 Docker 標示未執行；Docker 權限不足時，先依 `sshdeck guide <別名>` 的管理員指南授權，再完整登出／重新登入遠端帳號並重新檢查。Docker 群組是主機高權限，不是容器層級隔離；不要把不受信任的帳號加入。診斷保留 Docker CLI／daemon 的錯誤資訊，sshdeck 不會自動 sudo 或修復群組。
+
+本輪實際驗證平台為 Windows 10 Home（OS build 26200）／Node.js 24 與 Linux Debian 12／Node.js 22，連接隔離 Linux OpenSSH／Docker 測試主機；macOS 相容性路徑保留，但依使用者決定未實測。請以各 ticket 的 Verification notes 為準，不將 macOS 標示為已驗證。
