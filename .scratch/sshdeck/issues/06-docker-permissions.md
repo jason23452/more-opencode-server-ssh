@@ -29,4 +29,4 @@ Blocked by: 03, 04
 - Docker 權限 fixture：`sshdeck` 原可執行 `docker info`；`sshdeck2` 以自身登入帳號執行時收到 socket permission denied。該測試主機的 Docker socket 在容器內映射為 GID 0，因此只在專用 `sshdeck-test-ssh` 容器中暫時將 container-local group 命名為 `docker`、把 `sshdeck2` 加入該群組，重新 SSH 登入驗證通過後立即還原群組名稱及 membership。此變更不觸及宿主帳號或其他容器。
 - 容器 E2E：只使用已存在的 `node:22-bookworm-slim` image；建立隨機唯一名稱、帶 `owner=sshdeck`／`purpose=sshdeck-ticket06` labels、`--network none` 的測試容器，驗證 create/start/inspect 後在 `finally` 以同一名稱 remove。
 - `npm ci` 與 `npm audit --omit=dev`：0 vulnerabilities。macOS 未測。
-- 實作 commit：`5c3632c`；驗收紀錄 commit：`7719f6d`；整合 merge commit：`d8fef36`。整合後 Windows 與 Linux 全套測試各 35/35 通過。
+- 實作 commit：`5c3632c`；驗收紀錄 commits：`7719f6d`、`aac71d6`；整合 merge commit：`30450cd`。整合後 Windows 與 Linux 全套測試各 35/35 通過。
