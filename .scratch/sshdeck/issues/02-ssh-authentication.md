@@ -30,4 +30,4 @@ Blocked by: 01
 - Host key 替換驗證：以隔離測試容器在相同 loopback `host:port` 替換 host key，觀察原、新 SHA-256 指紋不同；首次檢查被阻擋，明確接受後登入成功。測試完成後已恢復原始 `sshdeck-test-ssh` 容器及 host key。
 - 自動測試涵蓋：錯誤 key／密語、檔案不存在／格式錯誤、SSH 不可達、認證失敗、拒絕及接受首次信任、即使後續帳號認證失敗仍保存使用者明確接受的 host trust、同端點不同登入帳號共用信任、CLI 建立的信任由 UI 重用、最近檢查狀態、前端記憶體鎖定與服務重啟清除、密語不持久保存。
 - Docker daemon 權限診斷不屬本票；由 06 實作。本輪 macOS 未測。
-- 實作 commits：`5d3c9ef`、`3b14154`；驗收紀錄 commit：`26cf4bb`。Ticket branch 已包含最新整合分支 `0051883`；ticket 合併 SHA 待 merger 完成後補記。
+- 實作 commits：`5d3c9ef`、`3b14154`；驗收紀錄 commit：`26cf4bb`。整合 commit：`a0359ac`；整合 worktree 的 Windows 與 Linux 測試各 14/14 通過。
