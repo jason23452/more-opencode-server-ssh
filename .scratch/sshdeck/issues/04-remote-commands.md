@@ -23,3 +23,5 @@ Blocked by: 02
 ## Verification notes
 
 使用可控制的 SSH 測試環境與專用測試命令。完整互動程式由 05 處理，此票不以單次命令介面冒充互動終端機。
+
+Implementation notes: added `sshdeck exec` and browser one-shot command controls with local SSH-channel cancellation. Windows local unit suite: `npm test` (14 passed, 4 SSH integration tests skipped because `SSHDECK_TEST_SSH_*` was not configured). Linux Node 22 container, live SSH streaming/cancellation, UI browser behavior, and macOS have not been verified. Acceptance checkboxes remain open pending those runs.
