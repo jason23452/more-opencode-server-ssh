@@ -41,6 +41,12 @@ sshdeck host delete dev
 
 `sshdeck key list` 列出 sshdeck 管理的金鑰及其關聯狀態，包含主機設定已刪除後仍保留的未關聯金鑰。`sshdeck key unlink dev` 只解除主機與金鑰的關聯：外部私鑰不刪除原檔，sshdeck 管理的金鑰仍留在清單中。`sshdeck key delete dev` 或以金鑰 ID 刪除 sshdeck 管理的本機金鑰；若其他主機設定仍共用該金鑰，刪除會被拒絕，請先解除共用關聯。刪除主機設定不會刪除任何金鑰或遠端授權。`key delete` 會一併輸出公鑰及撤銷指南；遠端撤銷須手動從 `authorized_keys` 移除精確公鑰行並保留其他行。
 
+## Docker 權限檢查
+
+`sshdeck host check dev` 先檢查 SSH 登入，再以同一個遠端登入帳號執行 `docker info` 檢查 Docker CLI／daemon 實際可用性，分別呈現 SSH 與 Docker 結果。若 SSH 失敗，Docker 會標示為未執行；權限不足、Docker CLI 缺少或 daemon 無法使用會提供診斷。檢查不使用 sudo、不更改群組，也不建立／刪除容器。
+
+`sshdeck guide dev` 的 Docker 段落說明：Docker 必須由管理員事先安裝；只有管理員確認後才手動執行 `sudo usermod -aG docker <登入帳號>`，再讓該帳號完整登出並重新登入，之後重新執行 `host check`。Docker 群組具有主機高權限影響，近似 root 權限，並非每位登入者只管理自己的容器；sshdeck 不會自動授權或提供使用者間容器隔離。容器建立／啟動／查看請透過 `sshdeck exec` 使用一般遠端 Docker 命令。
+
 CLI 在需要時會以隱藏輸入方式詢問私鑰密語。密語不寫入設定檔、命令參數或日誌。瀏覽器介面使用密碼欄位輸入密語，僅在本機服務記憶體中保留，服務停止或按下「鎖定已解鎖金鑰」後清除。
 
 ## 瀏覽器介面與本機資料
