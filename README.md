@@ -8,7 +8,22 @@
 - 從下載／clone 的專案根目錄執行 `npm ci` 安裝相依套件；不需發佈至公開 npm registry。
 - 可直接執行 `node bin/sshdeck.js host list` 或 `node bin/sshdeck.js ui`。
 - 也可在專案根目錄執行 `npm install -g .` 安裝 CLI，之後使用 `sshdeck host list` 或 `sshdeck ui`。
-- 執行完整測試：`npm test`。
+- 執行測試：`npm test`。若未設定下方整合測試環境變數，SSH／Docker E2E 測試會標示 skipped。
+
+完整整合測試只能連接**專用且可丟棄的 Linux SSH/Docker fixture**，不可指向使用者的正式主機或共用生產 Docker daemon。測試會以專用帳號連線、暫時變更 fixture 內測試帳號的 Docker 群組，並只建立／刪除唯一 `sshdeck-test-ticket06-*` 測試容器；Docker 權限測試亦會透過受測 SSH fixture 操作名為 `sshdeck-test-ssh` 的容器群組設定。不要使用真實私鑰或生產 Docker 環境。
+
+設定測試主機位址、埠、兩個測試登入金鑰及經可信管道核對的 SHA-256 host fingerprint 後執行 `npm test`。若要涵蓋加密金鑰登入情境，另設 `SSHDECK_TEST_SSH_KEY_A_ENCRYPTED`。測試私鑰須為隔離測試用金鑰，切勿使用個人或生產私鑰：
+
+```powershell
+$env:SSHDECK_TEST_SSH_HOST = '127.0.0.1'
+$env:SSHDECK_TEST_SSH_PORT = '2227'
+$env:SSHDECK_TEST_SSH_KEY_A = 'C:\path\to\test-key-a'
+$env:SSHDECK_TEST_SSH_KEY_B = 'C:\path\to\test-key-b'
+$env:SSHDECK_TEST_SSH_FINGERPRINT = 'SHA256:<verified-test-host-fingerprint>'
+npm test
+```
+
+Linux shell 可用相同變數名稱執行 `export SSHDECK_TEST_SSH_HOST=...` 等指令；macOS 的程式碼相容性路徑保留，但本輪不執行測試。完整測試 fixture 帳號、權限與各平台的執行證據詳見 `.scratch/sshdeck/issues/07-cross-platform-acceptance.md` 及前置票單。
 
 ## 主機設定與 SSH 檢查
 

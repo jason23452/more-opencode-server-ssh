@@ -41,6 +41,6 @@ Blocked by: 03, 04, 05, 06
 | CLI PTY、瀏覽器 xterm、輸入／resize／雙帳號／close／Origin | `test/interactive-shell.test.js`、Ticket 05 | Windows／Linux 通過；Edge headless 實際操作 |
 | Docker CLI/daemon capability、權限不足與重新授權、remote container lifecycle | `test/docker-permissions.test.js`、Ticket 06 | Windows／Linux 通過；僅建立／操作唯一 `sshdeck-test-ticket06-*` 容器 |
 
-Docker socket fixture 的 GID 映射及臨時 group-name 調整範圍只限 `sshdeck-test-ssh` 容器；測試後已還原 `root`／`sshdeck2` 群組狀態。容器建立、啟動、inspect、remove 只依唯一名稱執行，未查詢或修改其他 daemon workload。
+Docker socket fixture 的 GID 映射及臨時 group-name 調整範圍只限 `sshdeck-test-ssh` 容器；測試後已還原 `root`／`sshdeck2` 群組狀態。容器建立、啟動、inspect、remove 只依唯一名稱執行，未查詢或修改其他 daemon workload。驗收完成後已停止／移除該專用 SSH 測試容器、專用測試映像及臨時測試金鑰。
 
 Spec／ticket 01–06 證據沿用上表位置；spec 的 macOS 限制明示於 Testing Decisions 及 Further Notes。ticket 07 本身不另設無證據的通過項目。
