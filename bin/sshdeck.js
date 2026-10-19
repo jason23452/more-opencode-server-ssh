@@ -7,6 +7,7 @@ const path = require('node:path');
 const http = require('node:http');
 const { spawn } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
+const { StringDecoder } = require('node:string_decoder');
 const ssh = require('../lib/ssh');
 
 function dataFileFor({ platform = process.platform, env = process.env, home = os.homedir() } = {}) {
@@ -340,6 +341,9 @@ const page = `<!doctype html>
 <ul id="hosts"></ul>
 <h2>本機管理金鑰</h2>
 <ul id="managed-keys"></ul>
+<h2>遠端單次命令</h2>
+<form id="exec-form"><label>主機別名 <select id="exec-host"></select></label><label>遠端命令 <input id="exec-command" required></label><button>執行</button></form>
+<div id="exec-sessions" aria-live="polite"></div>
 <dialog id="unlock-dialog">
   <form id="unlock-form">
     <label>登入金鑰密語 <input id="passphrase" type="password" autocomplete="current-password"></label>
@@ -588,6 +592,8 @@ async function refresh() {
     }
     hosts.append(item);
   }
+  const selector = document.querySelector('#exec-host');
+  selector.replaceChildren(...list.map((host) => { const option = document.createElement('option'); option.value = host.alias; option.textContent = host.alias + ' — ' + host.username + '@' + host.hostname; return option; }));
   const records = await send('/api/keys');
   managedKeys.replaceChildren();
   for (const record of records) {
@@ -619,6 +625,72 @@ async function refresh() {
     managedKeys.append(item);
   }
 }
+
+async function runRemoteCommand(host, command, controller, output, expectedFingerprint) {
+  const response = await fetch('/api/exec', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ alias: host.alias, command, ...(expectedFingerprint ? { expectedFingerprint } : {}) }),
+    signal: controller.signal,
+  });
+  if (response.status === 428) {
+    if (!await unlock(host)) throw Error('已取消金鑰解鎖');
+    return runRemoteCommand(host, command, controller, output, expectedFingerprint);
+  }
+  if (response.status === 409) {
+    const challenge = await response.json();
+    if (['HOST_TRUST_REQUIRED', 'HOST_KEY_CHANGED'].includes(challenge.code)) {
+      const previous = challenge.previousFingerprint ? '（原信任 ' + challenge.previousFingerprint + '）' : '';
+      if (!confirm('SSH 主機指紋：' + challenge.fingerprint + previous + '。你已從可信管道核對此指紋嗎？')) throw Error('已拒絕主機指紋；未執行命令');
+      return runRemoteCommand(host, command, controller, output, challenge.fingerprint);
+    }
+    throw Error(challenge.error || '遠端命令失敗');
+  }
+  if (!response.ok) throw Error((await response.json()).error || '遠端命令失敗');
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let pending = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    pending += decoder.decode(value, { stream: true });
+    const lines = pending.split('\\n');
+    pending = lines.pop();
+    for (const line of lines) {
+      if (!line) continue;
+      const event = JSON.parse(line);
+      if (event.type === 'stdout' || event.type === 'stderr') output.textContent += event.data;
+      else if (event.type === 'exit') output.textContent += '\\n結束狀態：' + event.code;
+      else if (event.type === 'error') throw Error(event.error || '遠端命令失敗');
+    }
+  }
+}
+
+document.querySelector('#exec-form').onsubmit = async (event) => {
+  event.preventDefault();
+  const sessions = document.querySelector('#exec-sessions');
+  const alias = document.querySelector('#exec-host').value;
+  const command = document.querySelector('#exec-command').value;
+  if (!alias || !command.trim()) return;
+  const host = (await send('/api/hosts')).find((item) => item.alias === alias);
+  if (!host) { error.textContent = '找不到主機：' + alias; return; }
+  const section = document.createElement('section');
+  section.dataset.alias = host.alias;
+  const heading = document.createElement('h3');
+  heading.textContent = '目標：' + host.alias + '（' + host.username + '@' + host.hostname + ':' + host.port + '） ' + command;
+  const output = document.createElement('pre');
+  const cancel = document.createElement('button');
+  cancel.textContent = '取消此命令';
+  const controller = new AbortController();
+  cancel.onclick = () => controller.abort();
+  section.append(heading, cancel, output);
+  sessions.prepend(section);
+  output.textContent = '';
+  try { await runRemoteCommand(host, command, controller, output); }
+  catch (reason) { output.textContent += '\\n' + (reason.name === 'AbortError' ? '已取消' : reason.message); }
+  finally { cancel.disabled = true; }
+};
 
 form.onsubmit = async (event) => {
   event.preventDefault();
@@ -694,6 +766,7 @@ function createServer({ dataFile, port }) {
     const keyCreate = req.method === 'POST' && /^\/api\/hosts\/[^/?]+\/key$/.test(req.url);
     const collection = req.url === '/api/hosts';
     const unlockRequest = req.method === 'POST' && req.url === '/api/unlock';
+    const executing = req.method === 'POST' && req.url === '/api/exec';
     if (req.method === 'GET' && (keyPublicMatch || keyGuideMatch)) {
       try {
         const alias = decodeURIComponent((keyPublicMatch || keyGuideMatch)[1]);
@@ -704,7 +777,7 @@ function createServer({ dataFile, port }) {
       } catch (error) { return send(400, { error: error.message }); }
     }
     const keyOperation = Boolean(keyActionMatch && req.method === 'POST');
-    if (!unlockRequest && !keyCreate && !keyOperation && !managedKeyDelete && !(collection && req.method === 'POST') && !(checking && req.method === 'POST') && !(match && !checking && ['PUT', 'DELETE'].includes(req.method))) return send(404, { error: '找不到路徑' });
+    if (!unlockRequest && !executing && !keyCreate && !keyOperation && !managedKeyDelete && !(collection && req.method === 'POST') && !(checking && req.method === 'POST') && !(match && !checking && ['PUT', 'DELETE'].includes(req.method))) return send(404, { error: '找不到路徑' });
     let body = '';
     req.on('data', (chunk) => {
       body += chunk;
@@ -717,6 +790,45 @@ function createServer({ dataFile, port }) {
       try {
         const alias = match && decodeURIComponent(match[1]);
         const input = JSON.parse(body || '{}');
+        if (executing) {
+          const host = readHosts(dataFile).find((item) => item.alias === input.alias);
+          if (!host) return send(404, { error: `找不到主機：${input.alias || ''}` });
+          const keyPath = ssh.keyPathFor(host);
+          if (!unlockedKeys.has(keyPath)) return send(428, { error: '請先解鎖此主機的登入金鑰' });
+          const abort = new AbortController();
+          res.on('close', () => { if (!res.writableEnded) abort.abort(); });
+          const stdoutDecoder = new StringDecoder('utf8');
+          const stderrDecoder = new StringDecoder('utf8');
+          const writeOutput = (type, text) => { if (text && !res.destroyed) res.write(JSON.stringify({ type, data: text }) + '\n'); };
+          let started = false;
+          try {
+            const code = await ssh.exec(dataFile, host, unlockedKeys.get(keyPath), input.command, {
+              signal: abort.signal,
+              ...(typeof input.expectedFingerprint === 'string' ? { expectedFingerprint: input.expectedFingerprint } : {}),
+              onStart: () => {
+                started = true;
+                res.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' });
+                res.flushHeaders();
+              },
+              onStdout: (chunk) => writeOutput('stdout', stdoutDecoder.write(chunk)),
+              onStderr: (chunk) => writeOutput('stderr', stderrDecoder.write(chunk)),
+            });
+            writeOutput('stdout', stdoutDecoder.end());
+            writeOutput('stderr', stderrDecoder.end());
+            if (!res.destroyed) res.end(JSON.stringify({ type: 'exit', code }) + '\n');
+          } catch (error) {
+            if (error.code === 'INVALID_KEY_PASSPHRASE' || error.code === 'INVALID_PRIVATE_KEY') unlockedKeys.delete(keyPath);
+            if (res.destroyed) return;
+            if (!started) {
+              const status = ['HOST_TRUST_REQUIRED', 'HOST_KEY_CHANGED'].includes(error.code) ? 409 : error.code === 'AUTHENTICATION_FAILED' ? 401 : 502;
+              return send(status, { code: error.code || 'REMOTE_EXEC_FAILED', error: error.message, fingerprint: error.fingerprint, previousFingerprint: error.previousFingerprint });
+            }
+            writeOutput('stdout', stdoutDecoder.end());
+            writeOutput('stderr', stderrDecoder.end());
+            res.end(JSON.stringify({ type: 'error', code: error.code, error: error.message }) + '\n');
+          }
+          return;
+        }
         if (managedKeyDelete) {
           const id = decodeURIComponent(managedKeyRoute[1]);
           const record = ssh.resolveManagedKey(dataFile, id);
@@ -880,6 +992,36 @@ async function startUi({ port = 8787, dataFile = dataFileFor(), openBrowser: bro
   return server;
 }
 
+function parseExecArgs(args) {
+  const separator = args.indexOf('--');
+  if (separator !== 2 || !args[1]) throw new Error('用法：sshdeck exec <別名> -- <遠端命令>');
+  const command = args.slice(separator + 1).join(' ');
+  if (!command.trim()) throw new Error('遠端命令不可空白');
+  return { alias: args[1], command };
+}
+
+async function execCommand(dataFile, args) {
+  const { alias, command } = parseExecArgs(args);
+  const host = readHosts(dataFile).find((item) => item.alias === alias);
+  if (!host) throw new Error(`找不到主機：${alias}`);
+  const passphrase = await readSecret('登入金鑰密語（輸入隱藏；未加密請按 Enter）：');
+  const controller = new AbortController(); const interrupt = () => controller.abort(); process.once('SIGINT', interrupt);
+  console.log(`目標：${host.alias}（${host.username}@${host.hostname}:${host.port}）`);
+  try {
+    const options = { signal: controller.signal, onStdout: (chunk) => process.stdout.write(chunk), onStderr: (chunk) => process.stderr.write(chunk) };
+    let code;
+    try { code = await ssh.exec(dataFile, host, passphrase, command, options); }
+    catch (error) {
+      if (!['HOST_TRUST_REQUIRED', 'HOST_KEY_CHANGED'].includes(error.code)) throw error;
+      const prompt = require('node:readline/promises').createInterface({ input: process.stdin, output: process.stderr }); let answer;
+      try { answer = await prompt.question(`主機指紋 ${error.fingerprint}。請先由可信管道核對，確認信任？[y/N] `); } finally { prompt.close(); }
+      if (!/^y(es)?$/i.test(answer.trim())) throw new Error('已拒絕主機指紋；未執行命令');
+      code = await ssh.exec(dataFile, host, passphrase, command, { ...options, expectedFingerprint: error.fingerprint });
+    }
+    console.log(`\n結束狀態：${code}`); if (code !== 0) process.exitCode = code;
+  } finally { process.removeListener('SIGINT', interrupt); }
+}
+
 async function main(args) {
   if (args[0] === 'ui') {
     let port = 8787;
@@ -891,6 +1033,7 @@ async function main(args) {
     await startUi({ port });
     return;
   }
+  if (args[0] === 'exec') { await execCommand(dataFileFor(), args); return; }
   if (args[0] === 'key') { await keyCommand(dataFileFor(), args); return; }
   if (args[0] === 'guide') {
     const dataFile = dataFileFor();
@@ -903,7 +1046,7 @@ async function main(args) {
     console.log(ssh.installationGuide(host || record, ssh.managedPublicKey(keyPath)));
     return;
   }
-  if (args[0] !== 'host') throw new Error('用法：sshdeck host ... | sshdeck key <create|show|delete> <別名> | sshdeck guide <別名> | sshdeck ui');
+  if (args[0] !== 'host') throw new Error('用法：sshdeck exec <別名> -- <命令> | sshdeck host ... | sshdeck key ... | sshdeck guide <別名> | sshdeck ui');
   await hostCommand(dataFileFor(), args);
 }
 
@@ -914,4 +1057,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { dataFileFor, hostList, openBrowser, readSecret, startUi };
+module.exports = { dataFileFor, hostList, openBrowser, parseExecArgs, readSecret, startUi };

@@ -38,13 +38,16 @@ function runTestSsh(command) {
     let stdout = '';
     let stderr = '';
     let settled = false;
+    let presentedFingerprint;
     const finish = (error, result) => {
       if (settled) return;
       settled = true;
       client.end();
       if (error) reject(error); else resolve(result);
     };
-    client.on('error', finish);
+    client.on('error', (error) => finish(error?.message === 'Host denied (verification failed)'
+      ? new Error(`${error.message}; presented=${presentedFingerprint || 'none'} expected=${integrationHostFingerprint}`)
+      : error));
     client.on('ready', () => client.exec(command, (error, stream) => {
       if (error) return finish(error);
       stream.on('data', (chunk) => { stdout += chunk.toString(); });
@@ -57,7 +60,10 @@ function runTestSsh(command) {
       username: 'sshdeck',
       privateKey: fs.readFileSync(integrationKeyA),
       readyTimeout: 10_000,
-      hostVerifier: (key) => fingerprint(key) === integrationHostFingerprint,
+      hostVerifier: (key) => {
+        presentedFingerprint = fingerprint(key);
+        return presentedFingerprint === integrationHostFingerprint;
+      },
     });
   });
 }
