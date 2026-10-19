@@ -26,4 +26,4 @@ Blocked by: None
 - 驗證指令：`node --test`（2 tests passed, 0 failed；執行平台 Windows，Node.js 版本請以 `node --version` 查驗）。
 - 測試覆蓋 CLI CRUD、重複別名與不存在主機錯誤、UI CRUD、CLI/UI 共用資料及 loopback URL。
 - 未驗證項：macOS/Linux 實機測試；本票不實作 SSH 連線或金鑰操作。
-- 實作 commit：待提交後填入 SHA。
+- 實作 commit：`976a3f164344667a51fa941a6f67ae4ab213e95d`。
