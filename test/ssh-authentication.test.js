@@ -105,6 +105,24 @@ test('SSH trust requires explicit acceptance, shares trust by endpoint, and reco
     assert.equal(secondLogin.ok, true, 'different login accounts at one endpoint share host identity trust');
     assert.equal(secondLogin.fingerprint, firstChallenge.fingerprint);
 
+    const failedLoginDataFile = path.join(directory, 'failed-login', 'hosts.json');
+    const unauthorizedAccount = { ...hostA, alias: 'unauthorized', username: 'not-authorized' };
+    let failedLoginChallenge;
+    await assert.rejects(check(failedLoginDataFile, unauthorizedAccount), (error) => {
+      assert.equal(error.code, 'HOST_TRUST_REQUIRED');
+      failedLoginChallenge = error;
+      return true;
+    });
+    await assert.rejects(check(failedLoginDataFile, unauthorizedAccount, undefined, { expectedFingerprint: failedLoginChallenge.fingerprint }), (error) => {
+      assert.equal(error.code, 'AUTHENTICATION_FAILED');
+      return true;
+    });
+    assert.equal(JSON.parse(fs.readFileSync(stores(failedLoginDataFile).trust, 'utf8'))[endpoint(unauthorizedAccount)], failedLoginChallenge.fingerprint, 'explicit host trust persists even when login credentials fail');
+    await assert.rejects(check(failedLoginDataFile, unauthorizedAccount), (error) => {
+      assert.equal(error.code, 'AUTHENTICATION_FAILED');
+      return true;
+    });
+
     await assert.rejects(check(dataFile, { ...hostA, keyPath: integrationKeyB }), (error) => {
       assert.equal(error.code, 'AUTHENTICATION_FAILED');
       return true;
