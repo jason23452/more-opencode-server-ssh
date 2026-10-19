@@ -223,6 +223,32 @@ async function hostCommand(dataFile, args) {
   console.log(`已${description}主機設定：${alias}`);
 }
 
+async function keyCommand(dataFile, args) {
+  const action = args[1]; const alias = args[2];
+  if (!alias) throw new Error('請提供主機別名');
+  const host = readHosts(dataFile).find((item) => item.alias === alias);
+  if (!host) throw new Error(`找不到主機：${alias}`);
+  if (action === 'create') {
+    if (host.keyPath && !host.keyManaged) throw new Error('此主機已關聯使用者既有金鑰；請先解除關聯，避免覆寫或移除原始私鑰');
+    const passphrase = await readSecret('設定新金鑰密語（輸入隱藏）：');
+    const created = ssh.createManagedKey(dataFile, alias, passphrase);
+    try { mutateHosts(dataFile, (hosts) => { const current = hosts.find((item) => item.alias === alias); current.keyPath = created.keyPath; current.keyManaged = true; }); }
+    catch (error) { ssh.deleteManagedKey(dataFile, created.keyPath); throw error; }
+    console.log(`已建立金鑰：${alias}\n公鑰：${created.publicKey}`);
+    return;
+  }
+  if (action === 'show') { console.log(ssh.managedPublicKey(host.keyPath)); return; }
+  if (action === 'delete') {
+    if (!host.keyManaged) throw new Error('此金鑰非 sshdeck 建立，僅可解除關聯，不會刪除使用者檔案');
+    const users = readHosts(dataFile).filter((item) => item.keyPath === host.keyPath && item.alias !== alias);
+    if (users.length) throw new Error(`此金鑰仍由其他設定共用：${users.map((item) => item.alias).join(', ')}；請先解除關聯`);
+    ssh.deleteManagedKey(dataFile, host.keyPath);
+    mutateHosts(dataFile, (hosts) => { const current = hosts.find((item) => item.alias === alias); delete current.keyPath; delete current.keyManaged; });
+    console.log(`已刪除本機金鑰：${alias}`); return;
+  }
+  throw new Error('用法：sshdeck key <create|show|delete> <別名>');
+}
+
 function trustedRequest(req, port) {
   let requestUrl;
   try { requestUrl = new URL(`http://${req.headers.host}`); } catch { return false; }
@@ -383,7 +409,13 @@ async function refresh() {
       try { await send('/api/hosts/' + encodeURIComponent(host.alias), 'DELETE'); await refresh(); }
       catch (reason) { error.textContent = reason.message; }
     };
-    item.append(check, edit, remove);
+    const makeKey = document.createElement('button'); makeKey.textContent = '建立登入金鑰';
+    makeKey.onclick = async () => {
+      const passphrase = prompt('新 Ed25519 金鑰密語（不會保存）'); if (!passphrase) return;
+      try { const result = await send('/api/hosts/' + encodeURIComponent(host.alias) + '/key', 'POST', { passphrase }); await refresh(); const output = document.createElement('pre'); output.textContent = '公鑰：\\n' + result.publicKey + '\\n\\n' + result.guide; const copy = document.createElement('button'); copy.textContent = '複製公鑰'; copy.onclick = () => navigator.clipboard.writeText(result.publicKey); item.append(output, copy); }
+      catch (reason) { error.textContent = reason.message; }
+    };
+    item.append(check, edit, remove, makeKey);
     hosts.append(item);
   }
 }
@@ -433,9 +465,10 @@ function createServer({ dataFile, port }) {
     }
     const match = req.url.match(/^\/api\/hosts\/([^/?]+)(?:\/(check))?$/);
     const checking = Boolean(match && match[2] === 'check');
+    const keyCreate = req.method === 'POST' && /^\/api\/hosts\/[^/?]+\/key$/.test(req.url);
     const collection = req.url === '/api/hosts';
     const unlockRequest = req.method === 'POST' && req.url === '/api/unlock';
-    if (!unlockRequest && !(collection && req.method === 'POST') && !(checking && req.method === 'POST') && !(match && !checking && ['PUT', 'DELETE'].includes(req.method))) return send(404, { error: '找不到路徑' });
+    if (!unlockRequest && !keyCreate && !(collection && req.method === 'POST') && !(checking && req.method === 'POST') && !(match && !checking && ['PUT', 'DELETE'].includes(req.method))) return send(404, { error: '找不到路徑' });
     let body = '';
     req.on('data', (chunk) => {
       body += chunk;
@@ -448,6 +481,17 @@ function createServer({ dataFile, port }) {
       try {
         const alias = match && decodeURIComponent(match[1]);
         const input = JSON.parse(body || '{}');
+        if (keyCreate) {
+          const keyAlias = decodeURIComponent(req.url.match(/^\/api\/hosts\/([^/?]+)\/key$/)[1]);
+          const host = readHosts(dataFile).find((item) => item.alias === keyAlias);
+          if (!host) return send(404, { error: `找不到主機：${keyAlias}` });
+          if (host.keyPath && !host.keyManaged) return send(409, { error: '此主機使用既有金鑰，請先解除關聯' });
+          const made = ssh.createManagedKey(dataFile, keyAlias, input.passphrase);
+          try { mutateHosts(dataFile, (hosts) => { const target = hosts.find((item) => item.alias === keyAlias); target.keyPath = made.keyPath; target.keyManaged = true; }); }
+          catch (error) { ssh.deleteManagedKey(dataFile, made.keyPath); throw error; }
+          unlockedKeys.set(made.keyPath, input.passphrase);
+          return send(201, { publicKey: made.publicKey, guide: ssh.installationGuide(host, made.publicKey) });
+        }
         if (unlockRequest) {
           const host = readHosts(dataFile).find((item) => item.alias === input.alias);
           if (!host) return send(404, { error: `找不到主機：${input.alias || ''}` });
@@ -563,7 +607,9 @@ async function main(args) {
     await startUi({ port });
     return;
   }
-  if (args[0] !== 'host') throw new Error('用法：sshdeck host <add|list|update|delete> ... | sshdeck ui');
+  if (args[0] === 'key') { await keyCommand(dataFileFor(), args); return; }
+  if (args[0] === 'guide') { const host = readHosts(dataFileFor()).find((item) => item.alias === args[1]); if (!host) throw new Error(`找不到主機：${args[1] || ''}`); console.log(ssh.installationGuide(host, ssh.managedPublicKey(host.keyPath))); return; }
+  if (args[0] !== 'host') throw new Error('用法：sshdeck host ... | sshdeck key <create|show|delete> <別名> | sshdeck guide <別名> | sshdeck ui');
   await hostCommand(dataFileFor(), args);
 }
 

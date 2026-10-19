@@ -24,3 +24,5 @@ Blocked by: 02
 ## Verification notes
 
 指南應可在文件明示的 Linux 測試環境直接套用，說明必要的管理權限。Docker 群組授權指南由 06 補入同一使用者流程。
+
+目前驗證：Windows Node.js 24.20.0 `npm test` 15 tests，12 passed、3 isolated SSH integration tests skipped（未設定 SSHDECK_TEST_SSH_*）；新測試覆蓋加密 key 格式、錯誤密語、alias path traversal 防護、UUID 不覆寫、Unix mode 0600 及拒絕外部路徑刪除。尚未以隔離 SSH 主機執行新 key 手動授權／CLI/UI 登入，亦未驗證 Linux ACL／權限或 Windows icacls 實際 ACL；macOS 未測。這些驗收仍未完成。

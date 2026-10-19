@@ -80,6 +80,26 @@ test('CLI secret prompt does not echo passphrase input', async () => {
   assert.doesNotMatch(output, /test-secret/);
 });
 
+test('managed key creation writes encrypted Ed25519 keys without overwriting and can be deleted independently', () => {
+  const { createManagedKey, deleteManagedKey } = require('../lib/ssh');
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sshdeck-managed-'));
+  try {
+    const created = createManagedKey(path.join(directory, 'hosts.json'), 'alpha', 'private-test-passphrase');
+    assert.match(created.publicKey, /^ssh-ed25519 /);
+    assert.match(fs.readFileSync(created.keyPath, 'utf8'), /BEGIN OPENSSH PRIVATE KEY/);
+    assert.ok(utils.parseKey(fs.readFileSync(created.keyPath), 'wrong-test-passphrase') instanceof Error);
+    assert.equal(fs.statSync(created.keyPath).mode & 0o777, process.platform === 'win32' ? fs.statSync(created.keyPath).mode & 0o777 : 0o600);
+    assert.throws(() => createManagedKey(path.join(directory, 'hosts.json'), '../escape', 'passphrase'));
+    const duplicate = fs.readFileSync(created.keyPath);
+    const second = createManagedKey(path.join(directory, 'hosts.json'), 'alpha', 'other-passphrase');
+    assert.notEqual(second.keyPath, created.keyPath);
+    assert.deepEqual(fs.readFileSync(created.keyPath), duplicate);
+    assert.equal(deleteManagedKey(path.join(directory, 'hosts.json'), created.keyPath), true);
+    assert.equal(fs.existsSync(created.keyPath), false);
+    assert.throws(() => deleteManagedKey(path.join(directory, 'hosts.json'), path.join(directory, 'external')));
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
 test('SSH trust requires explicit acceptance, shares trust by endpoint, and records login status', {
   skip: !integrationEnabled && 'Set SSHDECK_TEST_SSH_HOST, SSHDECK_TEST_SSH_PORT, SSHDECK_TEST_SSH_KEY_A and SSHDECK_TEST_SSH_KEY_B to run against the isolated OpenSSH test host.',
 }, async () => {
