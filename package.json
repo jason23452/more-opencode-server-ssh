@@ -2,7 +2,7 @@
   "name": "sshdeck",
   "version": "0.1.0",
   "private": true,
-  "description": "Local SSH host profile manager",
+  "description": "跨平台本機 SSH 主機管理工具",
   "engines": {
     "node": ">=20"
   },

@@ -7,6 +7,7 @@ const path = require('node:path');
 const http = require('node:http');
 const { spawn } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
+const ssh = require('../lib/ssh');
 
 function dataFileFor({ platform = process.platform, env = process.env, home = os.homedir() } = {}) {
   const pathApi = platform === 'win32' ? path.win32 : path.posix;
@@ -143,38 +144,61 @@ function parseOptions(args) {
   return values;
 }
 
-function hostList(hosts) {
+function hostList(hosts, statuses = {}) {
   if (!hosts.length) return '尚未設定主機。';
-  return hosts.map((host) => `${host.alias}\t${host.hostname}:${host.port}\t${host.username}\t${host.keyPath || '預設金鑰'}\t未檢查`).join('\n');
+  return hosts.map((host) => {
+    const state = statuses[host.alias]?.state;
+    const check = state === 'success' ? 'SSH 成功'
+      : state === 'untrusted' ? '等待主機指紋確認'
+        : state === 'changed' ? '主機指紋已變更'
+          : state === 'failure' ? 'SSH 失敗' : '未檢查';
+    const checkedAt = statuses[host.alias]?.checkedAt;
+    return `${host.alias}\t${host.hostname}:${host.port}\t${host.username}\t${host.keyPath || '未設定金鑰'}\t${check}${checkedAt ? `（${checkedAt}）` : ''}`;
+  }).join('\n');
 }
 
-function hostCommand(dataFile, args) {
+async function readSecret(prompt, input = process.stdin, output = process.stderr) {
+  output.write(prompt);
+  const wasRaw = input.isRaw;
+  const canHide = Boolean(input.isTTY && typeof input.setRawMode === 'function');
+  if (canHide) input.setRawMode(true);
+  const readline = require('node:readline/promises');
+  const terminal = readline.createInterface({ input, output, terminal: false });
+  try {
+    return await terminal.question('');
+  } finally {
+    terminal.close();
+    if (canHide) input.setRawMode(Boolean(wasRaw));
+    output.write('\n');
+  }
+}
+
+async function hostCommand(dataFile, args) {
   const action = args[1];
   if (action === 'check') {
     const host = readHosts(dataFile).find((item) => item.alias === args[2]);
     if (!host) throw new Error(`找不到主機：${args[2] || ''}`);
-    const { check, trust } = require('../lib/ssh');
-    const readline = require('node:readline/promises');
-    const prompt = readline.createInterface({ input: process.stdin, output: process.stderr });
-    return (async () => {
+    const passphrase = await readSecret('登入金鑰密語（輸入隱藏；未加密請按 Enter）：');
+    let result;
+    try {
+      result = await ssh.check(dataFile, host, passphrase);
+    } catch (error) {
+      if (!['HOST_TRUST_REQUIRED', 'HOST_KEY_CHANGED'].includes(error.code)) throw error;
+      const readline = require('node:readline/promises');
+      const prompt = readline.createInterface({ input: process.stdin, output: process.stderr });
+      let answer;
       try {
-        let passphrase;
-        if (host.keyPath) { passphrase = await prompt.question('登入金鑰密語（未加密請直接按 Enter）：'); }
-        let result;
-        try { result = await check(dataFile, host, passphrase); }
-        catch (error) {
-          const challenge = error.message.match(/^首次主機信任確認：(.*)$/);
-          if (!challenge) throw error;
-          const answer = await prompt.question(`首次連線主機指紋 ${challenge[1]}。信任此主機？[y/N] `);
-          if (!/^y(es)?$/i.test(answer.trim())) throw new Error('已拒絕主機指紋；未執行登入');
-          trust(dataFile, host, challenge[1]); result = await check(dataFile, host, passphrase);
-        }
-        console.log(`SSH 登入檢查成功：${host.alias}（${result.fingerprint}）`);
+        const previous = error.previousFingerprint ? `（原信任指紋 ${error.previousFingerprint}）` : '';
+        answer = await prompt.question(`主機指紋 ${error.fingerprint}${previous}。確認信任此主機？[y/N] `);
       } finally { prompt.close(); }
-    })();
+      if (!/^y(es)?$/i.test(answer.trim())) throw new Error('已拒絕主機指紋；未執行登入');
+      result = await ssh.check(dataFile, host, passphrase, { expectedFingerprint: error.fingerprint });
+    }
+    console.log(`SSH 登入檢查成功：${host.alias}（${result.fingerprint}）`);
+    return;
   }
   if (action === 'list') {
-    console.log(hostList(readHosts(dataFile)));
+    console.log(hostList(readHosts(dataFile), ssh.getStatuses(dataFile)));
     return;
   }
   if (!['add', 'update', 'delete', 'remove'].includes(action)) {
@@ -216,14 +240,178 @@ function trustedRequest(req, port) {
   }
 }
 
-const page = `<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>sshdeck 主機設定</title><h1>主機設定管理</h1><form id="form"><label>別名 <input name="alias" required></label><label>主機名稱 <input name="hostname" required></label><label>連接埠 <input name="port" type="number" value="22" min="1" max="65535" required></label><label>登入帳號 <input name="username" required></label><label>金鑰路徑 <input name="keyPath"></label><button>新增主機</button></form><p id="error" role="alert"></p><ul id="hosts"></ul><script>
-const form=document.querySelector('#form'), hosts=document.querySelector('#hosts'), error=document.querySelector('#error');
-async function send(url,method,body){const response=await fetch(url,{method,headers:{'content-type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});if(!response.ok){const result=await response.json();throw Error(result.error)}return response.status===204?null:response.json()}
-async function refresh(){const list=await send('/api/hosts','GET');hosts.replaceChildren();for(const host of list){const item=document.createElement('li');item.textContent=host.alias+' — '+host.username+'@'+host.hostname+':'+host.port+'（未檢查） ';const edit=document.createElement('button');edit.textContent='編輯';edit.onclick=async()=>{const hostname=prompt('主機名稱',host.hostname);if(hostname===null)return;const port=prompt('連接埠',host.port);if(port===null)return;const username=prompt('登入帳號',host.username);if(username===null)return;const keyPath=prompt('金鑰路徑（留空使用預設）',host.keyPath||'');if(keyPath===null)return;try{await send('/api/hosts/'+encodeURIComponent(host.alias),'PUT',{hostname,port:Number(port),username,keyPath});await refresh()}catch(reason){error.textContent=reason.message}};const remove=document.createElement('button');remove.textContent='刪除';remove.onclick=async()=>{try{await send('/api/hosts/'+encodeURIComponent(host.alias),'DELETE');await refresh()}catch(reason){error.textContent=reason.message}};item.append(edit,remove);hosts.append(item)}}
-form.onsubmit=async event=>{event.preventDefault();error.textContent='';const host=Object.fromEntries(new FormData(form));host.port=Number(host.port);try{await send('/api/hosts','POST',host);form.reset();form.elements.port.value=22;await refresh()}catch(reason){error.textContent=reason.message}};refresh().catch(reason=>{error.textContent=reason.message});
-</script></html>`;
+const page = `<!doctype html>
+<html lang="zh-Hant">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<title>sshdeck 主機設定</title>
+<h1>主機設定管理</h1>
+<form id="form">
+  <label>別名 <input name="alias" required></label>
+  <label>主機名稱 <input name="hostname" required></label>
+  <label>連接埠 <input name="port" type="number" value="22" min="1" max="65535" required></label>
+  <label>登入帳號 <input name="username" required></label>
+  <label>既有金鑰路徑 <input name="keyPath"></label>
+  <button>新增主機</button>
+</form>
+<button id="lock-keys" type="button">鎖定已解鎖金鑰</button>
+<p id="error" role="alert"></p>
+<ul id="hosts"></ul>
+<dialog id="unlock-dialog">
+  <form id="unlock-form">
+    <label>登入金鑰密語 <input id="passphrase" type="password" autocomplete="current-password"></label>
+    <button type="submit">解鎖</button>
+    <button id="cancel-unlock" type="button">取消</button>
+  </form>
+</dialog>
+<script>
+const form = document.querySelector('#form');
+const hosts = document.querySelector('#hosts');
+const error = document.querySelector('#error');
+const unlockDialog = document.querySelector('#unlock-dialog');
+const unlockForm = document.querySelector('#unlock-form');
+const passphraseInput = document.querySelector('#passphrase');
+
+async function request(url, method = 'GET', body) {
+  const response = await fetch(url, {
+    method,
+    headers: body ? { 'content-type': 'application/json' } : {},
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  const value = response.status === 204 ? null : await response.json();
+  return { response, value };
+}
+
+async function send(url, method, body) {
+  const { response, value } = await request(url, method, body);
+  if (!response.ok) {
+    const reason = Error(value?.error || '操作失敗');
+    reason.code = value?.code;
+    reason.fingerprint = value?.fingerprint;
+    reason.previousFingerprint = value?.previousFingerprint;
+    throw reason;
+  }
+  return value;
+}
+
+function askPassphrase() {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      unlockDialog.removeEventListener('cancel', cancel);
+      unlockDialog.close();
+      passphraseInput.value = '';
+      resolve(value);
+    };
+    const cancel = (event) => { event.preventDefault(); finish(null); };
+    unlockDialog.addEventListener('cancel', cancel, { once: true });
+    unlockForm.onsubmit = (event) => { event.preventDefault(); finish(passphraseInput.value); };
+    document.querySelector('#cancel-unlock').onclick = () => finish(null);
+    unlockDialog.showModal();
+    passphraseInput.focus();
+  });
+}
+
+async function unlock(host) {
+  const passphrase = await askPassphrase();
+  if (passphrase === null) return false;
+  await send('/api/unlock', 'POST', { alias: host.alias, passphrase });
+  return true;
+}
+
+async function checkHost(host, expectedFingerprint) {
+  const route = '/api/hosts/' + encodeURIComponent(host.alias) + '/check';
+  const body = expectedFingerprint ? { expectedFingerprint } : {};
+  let { response, value } = await request(route, 'POST', body);
+  if (response.status === 428) {
+    if (!await unlock(host)) return;
+    ({ response, value } = await request(route, 'POST', body));
+  }
+  if (response.status === 409 && ['HOST_TRUST_REQUIRED', 'HOST_KEY_CHANGED'].includes(value.code)) {
+    const previous = value.previousFingerprint ? '（原信任 ' + value.previousFingerprint + '）' : '';
+    if (!confirm('SSH 主機指紋：' + value.fingerprint + previous + '。你已從可信管道核對此指紋嗎？')) {
+      throw Error('已拒絕主機指紋');
+    }
+    return checkHost(host, value.fingerprint);
+  }
+  if (!response.ok) throw Error(value.error || 'SSH 檢查失敗');
+  return value;
+}
+
+async function refresh() {
+  const list = await send('/api/hosts');
+  hosts.replaceChildren();
+  for (const host of list) {
+    const item = document.createElement('li');
+    const state = host.check?.state === 'success' ? 'SSH 成功'
+      : host.check?.state === 'failure' ? 'SSH 失敗'
+        : host.check?.state === 'changed' ? '指紋已變更'
+          : host.check?.state === 'untrusted' ? '等待指紋確認' : '未檢查';
+    const checked = host.check?.checkedAt ? '，最近檢查 ' + host.check.checkedAt : '';
+    item.textContent = host.alias + ' — ' + host.username + '@' + host.hostname + ':' + host.port + '（' + state + checked + '） ';
+
+    const check = document.createElement('button');
+    check.textContent = '檢查 SSH';
+    check.onclick = async () => {
+      error.textContent = '';
+      try { await checkHost(host); await refresh(); }
+      catch (reason) { error.textContent = reason.message; await refresh(); }
+    };
+
+    const edit = document.createElement('button');
+    edit.textContent = '編輯';
+    edit.onclick = async () => {
+      const hostname = prompt('主機名稱', host.hostname);
+      if (hostname === null) return;
+      const port = prompt('連接埠', host.port);
+      if (port === null) return;
+      const username = prompt('登入帳號', host.username);
+      if (username === null) return;
+      const keyPath = prompt('既有金鑰路徑', host.keyPath || '');
+      if (keyPath === null) return;
+      try {
+        await send('/api/hosts/' + encodeURIComponent(host.alias), 'PUT', { hostname, port: Number(port), username, keyPath });
+        await refresh();
+      } catch (reason) { error.textContent = reason.message; }
+    };
+
+    const remove = document.createElement('button');
+    remove.textContent = '刪除';
+    remove.onclick = async () => {
+      try { await send('/api/hosts/' + encodeURIComponent(host.alias), 'DELETE'); await refresh(); }
+      catch (reason) { error.textContent = reason.message; }
+    };
+    item.append(check, edit, remove);
+    hosts.append(item);
+  }
+}
+
+form.onsubmit = async (event) => {
+  event.preventDefault();
+  error.textContent = '';
+  const host = Object.fromEntries(new FormData(form));
+  host.port = Number(host.port);
+  try {
+    await send('/api/hosts', 'POST', host);
+    form.reset();
+    form.elements.port.value = 22;
+    await refresh();
+  } catch (reason) { error.textContent = reason.message; }
+};
+
+document.querySelector('#lock-keys').onclick = async () => {
+  try { await send('/api/lock', 'POST', {}); error.textContent = '已鎖定所有登入金鑰'; }
+  catch (reason) { error.textContent = reason.message; }
+};
+
+refresh().catch((reason) => { error.textContent = reason.message; });
+</script>
+</html>`;
 
 function createServer({ dataFile, port }) {
+  const unlockedKeys = new Map();
   const server = http.createServer((req, res) => {
     const send = (status, value, contentType = 'application/json') => {
       res.writeHead(status, { 'content-type': `${contentType}; charset=utf-8`, 'cache-control': 'no-store' });
@@ -232,12 +420,22 @@ function createServer({ dataFile, port }) {
     if (!trustedRequest(req, server.address()?.port || port)) return send(403, { error: '不允許的 Host 或 Origin' });
     if (req.method === 'GET' && req.url === '/') return send(200, page, 'text/html');
     if (req.method === 'GET' && req.url === '/api/hosts') {
-      try { return send(200, readHosts(dataFile)); } catch (error) { return send(500, { error: error.message }); }
+      try {
+        const statuses = ssh.getStatuses(dataFile);
+        return send(200, readHosts(dataFile).map((host) => ({ ...host, check: statuses[host.alias] || { state: 'unchecked' } })));
+      } catch (error) { return send(500, { error: error.message }); }
     }
 
-    const match = req.url.match(/^\/api\/hosts\/([^/?]+)$/);
+    if (req.method === 'POST' && req.url === '/api/lock') {
+      unlockedKeys.clear();
+      res.writeHead(204, { 'cache-control': 'no-store' });
+      return res.end();
+    }
+    const match = req.url.match(/^\/api\/hosts\/([^/?]+)(?:\/(check))?$/);
+    const checking = Boolean(match && match[2] === 'check');
     const collection = req.url === '/api/hosts';
-    if (!(collection && req.method === 'POST') && !(match && ['PUT', 'DELETE'].includes(req.method))) return send(404, { error: '找不到路徑' });
+    const unlockRequest = req.method === 'POST' && req.url === '/api/unlock';
+    if (!unlockRequest && !(collection && req.method === 'POST') && !(checking && req.method === 'POST') && !(match && !checking && ['PUT', 'DELETE'].includes(req.method))) return send(404, { error: '找不到路徑' });
     let body = '';
     req.on('data', (chunk) => {
       body += chunk;
@@ -246,9 +444,42 @@ function createServer({ dataFile, port }) {
         req.destroy();
       }
     });
-    req.on('end', () => {
+    req.on('end', async () => {
       try {
         const alias = match && decodeURIComponent(match[1]);
+        const input = JSON.parse(body || '{}');
+        if (unlockRequest) {
+          const host = readHosts(dataFile).find((item) => item.alias === input.alias);
+          if (!host) return send(404, { error: `找不到主機：${input.alias || ''}` });
+          const keyPath = ssh.validateKey(host, typeof input.passphrase === 'string' ? input.passphrase : '');
+          unlockedKeys.set(keyPath, typeof input.passphrase === 'string' ? input.passphrase : '');
+          res.writeHead(204, { 'cache-control': 'no-store' });
+          return res.end();
+        }
+        if (checking) {
+          const host = readHosts(dataFile).find((item) => item.alias === alias);
+          if (!host) return send(404, { error: `找不到主機：${alias}` });
+          const keyPath = ssh.keyPathFor(host);
+          if (!unlockedKeys.has(keyPath)) return send(428, { code: 'NEEDS_UNLOCK', error: '請先解鎖此主機的登入金鑰' });
+          try {
+            const result = await ssh.check(dataFile, host, unlockedKeys.get(keyPath), {
+              ...(typeof input.expectedFingerprint === 'string' ? { expectedFingerprint: input.expectedFingerprint } : {}),
+            });
+            return send(200, result);
+          } catch (error) {
+            if (error.code === 'INVALID_KEY_PASSPHRASE' || error.code === 'INVALID_PRIVATE_KEY') unlockedKeys.delete(keyPath);
+            if (['HOST_TRUST_REQUIRED', 'HOST_KEY_CHANGED'].includes(error.code)) {
+              return send(409, {
+                code: error.code,
+                error: error.message,
+                fingerprint: error.fingerprint,
+                previousFingerprint: error.previousFingerprint,
+              });
+            }
+            const status = error.code === 'AUTHENTICATION_FAILED' ? 401 : 502;
+            return send(status, { code: error.code || 'SSH_CHECK_FAILED', error: error.message });
+          }
+        }
         if (req.method === 'DELETE') {
           mutateHosts(dataFile, (hosts) => {
             const index = hosts.findIndex((host) => host.alias === alias);
@@ -258,7 +489,6 @@ function createServer({ dataFile, port }) {
           res.writeHead(204, { 'cache-control': 'no-store' });
           return res.end();
         }
-        const input = JSON.parse(body || '{}');
         if (req.method === 'POST') {
           let created;
           mutateHosts(dataFile, (hosts) => {
@@ -283,6 +513,7 @@ function createServer({ dataFile, port }) {
       }
     });
   });
+  server.once('close', () => unlockedKeys.clear());
   return server;
 }
 
@@ -343,4 +574,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { dataFileFor, hostList, openBrowser, startUi };
+module.exports = { dataFileFor, hostList, openBrowser, readSecret, startUi };
