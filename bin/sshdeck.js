@@ -150,12 +150,35 @@ function hostList(hosts) {
 
 function hostCommand(dataFile, args) {
   const action = args[1];
+  if (action === 'check') {
+    const host = readHosts(dataFile).find((item) => item.alias === args[2]);
+    if (!host) throw new Error(`找不到主機：${args[2] || ''}`);
+    const { check, trust } = require('../lib/ssh');
+    const readline = require('node:readline/promises');
+    const prompt = readline.createInterface({ input: process.stdin, output: process.stderr });
+    return (async () => {
+      try {
+        let passphrase;
+        if (host.keyPath) { passphrase = await prompt.question('登入金鑰密語（未加密請直接按 Enter）：'); }
+        let result;
+        try { result = await check(dataFile, host, passphrase); }
+        catch (error) {
+          const challenge = error.message.match(/^首次主機信任確認：(.*)$/);
+          if (!challenge) throw error;
+          const answer = await prompt.question(`首次連線主機指紋 ${challenge[1]}。信任此主機？[y/N] `);
+          if (!/^y(es)?$/i.test(answer.trim())) throw new Error('已拒絕主機指紋；未執行登入');
+          trust(dataFile, host, challenge[1]); result = await check(dataFile, host, passphrase);
+        }
+        console.log(`SSH 登入檢查成功：${host.alias}（${result.fingerprint}）`);
+      } finally { prompt.close(); }
+    })();
+  }
   if (action === 'list') {
     console.log(hostList(readHosts(dataFile)));
     return;
   }
   if (!['add', 'update', 'delete', 'remove'].includes(action)) {
-    throw new Error('用法：sshdeck host <add|list|update|delete> ...');
+    throw new Error('用法：sshdeck host <add|list|update|delete|check> ...');
   }
 
   const alias = args[2];
@@ -310,7 +333,7 @@ async function main(args) {
     return;
   }
   if (args[0] !== 'host') throw new Error('用法：sshdeck host <add|list|update|delete> ... | sshdeck ui');
-  hostCommand(dataFileFor(), args);
+  await hostCommand(dataFileFor(), args);
 }
 
 if (require.main === module) {

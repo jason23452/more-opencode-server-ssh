@@ -3,7 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "description": "Local SSH host profile manager",
-  "engines": { "node": ">=20" },
-  "scripts": { "test": "node --test" },
-  "bin": { "sshdeck": "bin/sshdeck.js" }
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "bin": {
+    "sshdeck": "bin/sshdeck.js"
+  },
+  "dependencies": {
+    "ssh2": "^1.17.0"
+  }
 }
