@@ -23,9 +23,9 @@ sshdeck host delete dev
 
 ## 執行單次遠端命令
 
-`sshdeck exec <別名> -- <命令>` 將 `--` 後的所有 CLI 參數以單一空格連接，形成一條原樣交給**遠端登入 shell**解讀的命令字串；sshdeck 不會在本機 shell 執行該命令，也不會替命令參數自動加引號。需要空白／引號保留時，請依本機 shell 的規則引用整個命令，例如 PowerShell 與 POSIX shell 都可用 `sshdeck exec dev -- "printf '%s\\n' 'hello world'"`。遠端 shell 再依自身規則解讀引號、變數與特殊字元。要傳遞的引號必須由本機 shell 正確逸出；此命令字串規則不因 Windows、Linux 或 macOS 用戶端改變。
+`sshdeck exec <別名> -- <命令>` 將 `--` 後的所有 CLI 參數以單一空格連接，形成一條原樣交給**遠端登入 shell**解讀的命令字串；sshdeck 不會在本機 shell 執行該命令，也不會替命令參數自動加引號。需要空白／引號保留時，請依本機 shell 的規則引用整個命令，例如 PowerShell 與 POSIX shell 都可用 `sshdeck exec dev -- "printf '%s' 'hello world'"`。遠端 shell 再依自身規則解讀引號、變數與特殊字元。要傳遞的引號必須由本機 shell 正確逸出；此命令字串規則不因 Windows、Linux 或 macOS 用戶端改變。
 
-命令輸出即時寫入 stdout/stderr，結束時顯示遠端狀態碼；非零狀態使 CLI 以該狀態失敗。Ctrl+C 關閉本機 SSH 工作階段，不保證終止遠端衍生程序。遇斷線不會重送命令。首次使用及指紋變更時須先核對並明確接受指紋。UI 以主機表單選擇別名、顯示目標與串流輸出，可取消當前工作；`shell` 互動終端機不屬此命令介面。
+命令輸出即時寫入 stdout/stderr，結束時顯示遠端狀態碼；非零狀態使 CLI 以該狀態失敗。Ctrl+C 關閉本機 SSH 工作階段，不保證終止遠端衍生程序。遇斷線不會重送命令。首次使用及指紋變更時須先核對並明確接受指紋。UI 可同時執行多個別名的命令；每個工作各自顯示目標與串流輸出，並可個別取消。取消會關閉相應本機 SSH 工作階段，不保證遠端衍生程序停止。`shell` 互動終端機不屬此命令介面。
 
 ## sshdeck 管理金鑰
 
