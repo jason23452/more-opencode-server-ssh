@@ -26,5 +26,6 @@ Blocked by: None
 - Windows：Node.js `v24.20.0`，`npm test`，7 tests passed、0 failed。
 - Linux：Node.js `v22.23.3` Debian 容器，`npm test`，7 tests passed、0 failed。測試容器以工作目錄 bind mount 執行，測試資料使用獨立暫存目錄。
 - 測試涵蓋 CLI CRUD、錯誤結束狀態、平台資料目錄函式（Windows／Linux 路徑）、過期鎖恢復、Linux 私有檔案權限、同時新增 8 個別名、UI API 全欄位編輯、CLI/UI 共用持久化、loopback、惡意 Host／Origin 拒絕、沒有開放 CORS，以及瀏覽器 opener 失敗時的手動網址提示。
+- Linux 實際啟動：在 `node:22-bookworm-slim`、`--network none`、唯讀程式碼掛載的測試容器啟動 `sshdeck ui --port 0`；確認輸出 loopback URL 及無 GUI 時的手動開啟提示，再由 `timeout` 停止測試程序。
 - opener 使用注入函式測試；本輪未實際開啟 GUI 瀏覽器。macOS 未測。此票不實作 SSH、登入金鑰或 Docker 功能。
 - 整合 commit：`97aae5a39d35242e09e474215ff503716701d21f`。
