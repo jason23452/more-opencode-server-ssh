@@ -28,4 +28,4 @@ Blocked by: 02
 - 自動化測試驗證 `--` 命令解析、遠端空格／引號、UTF-8 分段輸出、stdout／stderr 串流及 exit status、並行 aliases、CLI Ctrl+C、UI 取消後 session 可繼續使用、惡意 Origin 被拒絕，以及不可達主機失敗且不本機執行或重送命令。
 - 測試使用 harmless `printf`／`sleep`；沒有執行 `docker ps` 或其他會讀取／操作共用 Docker daemon 工作負載的命令。macOS 未測。
 - `npm test` 使用 `--test-concurrency=1`，避免同一隔離 SSH fixture 的不同測試平行修改 `authorized_keys`。
-- macOS 未測。實作／驗收紀錄 commits 與 ticket merge SHA 待提交／整合後補記。
+- macOS 未測。實作及驗收紀錄 commit：`88810cc`。已合併最新整合 tip `6a14292` 並重跑 Windows／Linux 完整測試；ticket merge SHA 待 merger 完成後補記。
