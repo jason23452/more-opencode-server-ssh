@@ -29,4 +29,4 @@ Blocked by: 02
 - 自動化 PTY 測試包含 CLI 管線互動及 `stty size`、raw-mode restore helper、WebSocket 首次信任／登入、`read` 互動、resize（`stty size` 驗證）、兩帳號並行、手動 lock 不關閉既有 PTY、不同 session 關閉隔離、新 session 不恢復 shell 狀態、`exit 7` 狀態、CLI／瀏覽器不可達 SSH 錯誤、關閉本機服務清理及 Host／Origin 拒絕。
 - Microsoft Edge headless 實際操作 xterm：確認本機載入 xterm assets、首次 host key 核對、shell 輸入、調整瀏覽器尺寸使遠端 PTY 寬度改變、不同帳號並行、鎖定後既有 session 繼續及分別關閉。
 - 僅使用測試帳號與無害 shell 指令；不使用真實私鑰，未操作 Docker daemon。macOS 未測。
-- `npm test` 序列執行，避免共享隔離 SSH fixture 的 `authorized_keys` 測試互相干擾。macOS 未測。實作 commit：`9e1fe63`；ticket branch 已合併最新整合 tip `a01bde8`，整合 merge SHA 待 merger 完成後補記。
+- `npm test` 序列執行，避免共享隔離 SSH fixture 的 `authorized_keys` 測試互相干擾。macOS 未測。實作 commit：`9e1fe63`；整合 merge commit：`0682b05`。整合後 Windows 與 Linux 測試各 31/31 通過。
