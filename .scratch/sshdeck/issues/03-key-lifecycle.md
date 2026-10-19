@@ -29,4 +29,4 @@ Blocked by: 02
 - Microsoft Edge headless 實際操作：使用 password dialog 建立加密金鑰、複製公鑰、查看指南、登入隔離主機，再刪除本機私鑰；確認遠端授權未被自動撤銷。
 - sshdeck 管理金鑰另存於應用資料的 `hosts.json.keys.json` registry，可在主機設定刪除後列出、查看公鑰／指南及清理孤立金鑰；測試涵蓋共享金鑰解除關聯後刪除。
 - 自動化另驗證模擬 keygen 失敗不殘留私鑰、UUID 不覆寫、alias path traversal 防護、外部私鑰解除關聯不刪原檔，以及私鑰密語不寫入主機設定或 registry。
-- macOS 未測。實作 commit：`a54dc10`；ticket branch 合併 SHA 待 merger 完成後補記。
+- macOS 未測。實作 commit：`a54dc10`；整合 merge commit：`c66881dcbf9e4aa413a79c03158d4e6438944628`。整合後 Windows 與 Linux 測試各 18/18 通過。
