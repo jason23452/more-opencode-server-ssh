@@ -146,6 +146,16 @@ function parseOptions(args) {
   return values;
 }
 
+function dockerStatusLabel(docker) {
+  if (!docker) return '未檢查';
+  if (docker.state === 'available') return `可用 ${docker.version}`;
+  if (docker.state === 'permission-denied') return '權限不足';
+  if (docker.state === 'missing-cli') return 'CLI 未安裝';
+  if (docker.state === 'daemon-unavailable') return 'daemon 不可用';
+  if (docker.state === 'not-run') return '未執行';
+  return '無法使用';
+}
+
 function hostList(hosts, statuses = {}) {
   if (!hosts.length) return '尚未設定主機。';
   return hosts.map((host) => {
@@ -154,8 +164,10 @@ function hostList(hosts, statuses = {}) {
       : state === 'untrusted' ? '等待主機指紋確認'
         : state === 'changed' ? '主機指紋已變更'
           : state === 'failure' ? 'SSH 失敗' : '未檢查';
+    const docker = statuses[host.alias]?.docker;
+    const dockerCheck = `Docker ${dockerStatusLabel(docker)}`;
     const checkedAt = statuses[host.alias]?.checkedAt;
-    return `${host.alias}\t${host.hostname}:${host.port}\t${host.username}\t${host.keyPath || '未設定金鑰'}\t${check}${checkedAt ? `（${checkedAt}）` : ''}`;
+    return `${host.alias}\t${host.hostname}:${host.port}\t${host.username}\t${host.keyPath || '未設定金鑰'}\t${check}${checkedAt ? `（${checkedAt}）` : ''}\t${dockerCheck}`;
   }).join('\n');
 }
 
@@ -183,9 +195,14 @@ async function hostCommand(dataFile, args) {
     const passphrase = await readSecret('登入金鑰密語（輸入隱藏；未加密請按 Enter）：');
     let result;
     try {
-      result = await ssh.check(dataFile, host, passphrase);
+      result = await ssh.checkWithDocker(dataFile, host, passphrase);
     } catch (error) {
-      if (!['HOST_TRUST_REQUIRED', 'HOST_KEY_CHANGED'].includes(error.code)) throw error;
+      if (!['HOST_TRUST_REQUIRED', 'HOST_KEY_CHANGED'].includes(error.code)) {
+        if (ssh.getStatuses(dataFile)[host.alias]?.docker?.state === 'not-run') {
+          console.error('Docker 檢查：未執行（SSH 檢查未成功）');
+        }
+        throw error;
+      }
       const readline = require('node:readline/promises');
       const prompt = readline.createInterface({ input: process.stdin, output: process.stderr });
       let answer;
@@ -194,9 +211,15 @@ async function hostCommand(dataFile, args) {
         answer = await prompt.question(`主機指紋 ${error.fingerprint}${previous}。確認信任此主機？[y/N] `);
       } finally { prompt.close(); }
       if (!/^y(es)?$/i.test(answer.trim())) throw new Error('已拒絕主機指紋；未執行登入');
-      result = await ssh.check(dataFile, host, passphrase, { expectedFingerprint: error.fingerprint });
+      result = await ssh.checkWithDocker(dataFile, host, passphrase, { expectedFingerprint: error.fingerprint });
     }
     console.log(`SSH 登入檢查成功：${host.alias}（${result.fingerprint}）`);
+    if (result.docker.state === 'available') {
+      console.log(`Docker daemon 可用：${result.docker.version}`);
+    } else {
+      console.error(`Docker 檢查：${dockerStatusLabel(result.docker)}${result.docker.diagnostic ? `\n診斷：${result.docker.diagnostic}` : ''}`);
+      process.exitCode = 1;
+    }
     return;
   }
   if (action === 'list') {
@@ -593,8 +616,17 @@ async function refresh() {
       : host.check?.state === 'failure' ? 'SSH 失敗'
         : host.check?.state === 'changed' ? '指紋已變更'
           : host.check?.state === 'untrusted' ? '等待指紋確認' : '未檢查';
+    const docker = host.check?.docker;
+    const dockerState = !docker ? '未檢查'
+      : docker.state === 'available' ? '可用 ' + docker.version
+        : docker.state === 'permission-denied' ? '權限不足'
+          : docker.state === 'missing-cli' ? 'CLI 未安裝'
+            : docker.state === 'daemon-unavailable' ? 'daemon 不可用'
+              : docker.state === 'not-run' ? '未執行'
+                : '無法使用';
     const checked = host.check?.checkedAt ? '，最近檢查 ' + host.check.checkedAt : '';
-    item.textContent = host.alias + ' — ' + host.username + '@' + host.hostname + ':' + host.port + '（' + state + checked + '） ';
+    item.title = docker?.diagnostic || '';
+    item.textContent = host.alias + ' — ' + host.username + '@' + host.hostname + ':' + host.port + '（SSH：' + state + '；Docker：' + dockerState + checked + '） ';
 
     const check = document.createElement('button');
     check.textContent = '檢查 SSH';
@@ -1016,7 +1048,7 @@ function createServer({ dataFile, port }) {
           const keyPath = ssh.keyPathFor(host);
           if (!unlockedKeys.has(keyPath)) return send(428, { code: 'NEEDS_UNLOCK', error: '請先解鎖此主機的登入金鑰' });
           try {
-            const result = await ssh.check(dataFile, host, unlockedKeys.get(keyPath), {
+            const result = await ssh.checkWithDocker(dataFile, host, unlockedKeys.get(keyPath), {
               ...(typeof input.expectedFingerprint === 'string' ? { expectedFingerprint: input.expectedFingerprint } : {}),
             });
             return send(200, result);
@@ -1031,7 +1063,11 @@ function createServer({ dataFile, port }) {
               });
             }
             const status = error.code === 'AUTHENTICATION_FAILED' ? 401 : 502;
-            return send(status, { code: error.code || 'SSH_CHECK_FAILED', error: error.message });
+            return send(status, {
+              code: error.code || 'SSH_CHECK_FAILED',
+              error: error.message,
+              docker: ssh.getStatuses(dataFile)[alias]?.docker,
+            });
           }
         }
         if (req.method === 'DELETE') {
