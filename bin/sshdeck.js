@@ -8,6 +8,7 @@ const http = require('node:http');
 const { spawn } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
 const { StringDecoder } = require('node:string_decoder');
+const { WebSocketServer, WebSocket } = require('ws');
 const ssh = require('../lib/ssh');
 
 function dataFileFor({ platform = process.platform, env = process.env, home = os.homedir() } = {}) {
@@ -326,6 +327,7 @@ const page = `<!doctype html>
 <html lang="zh-Hant">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width">
+<link rel="stylesheet" href="/assets/xterm.css">
 <title>sshdeck 主機設定</title>
 <h1>主機設定管理</h1>
 <form id="form">
@@ -344,6 +346,8 @@ const page = `<!doctype html>
 <h2>遠端單次命令</h2>
 <form id="exec-form"><label>主機別名 <select id="exec-host"></select></label><label>遠端命令 <input id="exec-command" required></label><button>執行</button></form>
 <div id="exec-sessions" aria-live="polite"></div>
+<h2>SSH 互動終端機</h2>
+<div id="shell-sessions"></div>
 <dialog id="unlock-dialog">
   <form id="unlock-form">
     <label>登入金鑰密語 <input id="passphrase" type="password" autocomplete="current-password"></label>
@@ -363,10 +367,13 @@ const page = `<!doctype html>
   <pre id="key-output"></pre>
   <button id="copy-public-key" type="button" disabled>複製公鑰</button>
 </section>
+<script src="/assets/xterm.js"></script>
+<script src="/assets/addon-fit.js"></script>
 <script>
 const form = document.querySelector('#form');
 const hosts = document.querySelector('#hosts');
 const managedKeys = document.querySelector('#managed-keys');
+const shellSessions = document.querySelector('#shell-sessions');
 const error = document.querySelector('#error');
 const unlockDialog = document.querySelector('#unlock-dialog');
 const unlockForm = document.querySelector('#unlock-form');
@@ -484,6 +491,98 @@ async function checkHost(host, expectedFingerprint) {
   return value;
 }
 
+function startShell(host) {
+  const section = document.createElement('section');
+  section.dataset.alias = host.alias;
+  const heading = document.createElement('h3');
+  heading.textContent = '終端機：' + host.alias + '（' + host.username + '@' + host.hostname + ':' + host.port + '）';
+  const close = document.createElement('button');
+  close.textContent = '關閉終端機';
+  const terminalElement = document.createElement('div');
+  terminalElement.className = 'sshdeck-terminal';
+  terminalElement.style.cssText = 'height:360px; min-width:320px; background:#111; padding:6px;';
+  section.append(heading, close, terminalElement);
+  shellSessions.prepend(section);
+
+  const terminal = new window.Terminal({ cursorBlink: true, convertEol: true, scrollback: 2000 });
+  const fit = new window.FitAddon.FitAddon();
+  terminal.loadAddon(fit);
+  terminal.open(terminalElement);
+  fit.fit();
+  terminal.focus();
+  let socket;
+  let finished = false;
+  const closeSocket = () => {
+    if (socket && socket.readyState < WebSocket.CLOSING) socket.close(1000, 'terminal closed');
+  };
+  close.onclick = closeSocket;
+
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  socket = new WebSocket(protocol + '//' + location.host + '/api/shell?alias=' + encodeURIComponent(host.alias));
+  socket.binaryType = 'arraybuffer';
+  const sendControl = (value) => {
+    if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(value));
+  };
+  const resize = () => {
+    try { fit.fit(); sendControl({ type: 'resize', cols: terminal.cols, rows: terminal.rows }); }
+    catch { /* hidden or detached terminal */ }
+  };
+  const terminalEncoder = new TextEncoder();
+  terminal.onData((data) => {
+    if (socket.readyState === WebSocket.OPEN) socket.send(terminalEncoder.encode(data));
+  });
+  terminal.onResize(({ cols, rows }) => sendControl({ type: 'resize', cols, rows }));
+  const resizeObserver = new ResizeObserver(resize);
+  resizeObserver.observe(terminalElement);
+
+  socket.onopen = resize;
+  socket.onmessage = async (event) => {
+    if (typeof event.data !== 'string') {
+      terminal.write(new Uint8Array(event.data));
+      return;
+    }
+    let message;
+    try { message = JSON.parse(event.data); }
+    catch { terminal.write(event.data); return; }
+    if (message.type === 'unlock-required') {
+      try {
+        if (!await unlock(host)) { socket.close(1000, 'unlock cancelled'); return; }
+        sendControl({ type: 'unlocked' });
+      } catch (reason) {
+        terminal.write('\\r\\n金鑰解鎖失敗：' + reason.message + '\\r\\n');
+        socket.close(1011, 'unlock failed');
+      }
+    } else if (message.type === 'trust-required' || message.type === 'host-key-changed') {
+      const previous = message.previousFingerprint ? '（原信任 ' + message.previousFingerprint + '）' : '';
+      if (confirm('SSH 主機指紋：' + message.fingerprint + previous + '。你已從可信管道核對此指紋嗎？')) {
+        sendControl({ type: 'trust', fingerprint: message.fingerprint });
+      } else {
+        terminal.write('\\r\\n已拒絕主機指紋。\\r\\n');
+        sendControl({ type: 'trust-reject' });
+      }
+    } else if (message.type === 'started') {
+      terminal.write('已連線。輸入 exit 或關閉此終端機結束工作階段。\\r\\n');
+      resize();
+      terminal.focus();
+    } else if (message.type === 'error') {
+      terminal.write('\\r\\nSSH 終端機錯誤：' + message.error + '\\r\\n');
+    } else if (message.type === 'closed') {
+      const detail = message.error ? '：' + message.error : message.code === undefined ? '' : '（結束狀態 ' + message.code + '）';
+      terminal.write('\\r\\n終端機已關閉' + detail + '\\r\\n');
+      finished = true;
+      close.disabled = true;
+      resizeObserver.disconnect();
+    }
+  };
+  socket.onerror = () => { terminal.write('\\r\\nWebSocket 終端機連線失敗。\\r\\n'); };
+  socket.onclose = (event) => {
+    if (!finished && event.code !== 1000) terminal.write('\\r\\n終端機連線中斷（' + event.code + '）。\\r\\n');
+    finished = true;
+    close.disabled = true;
+    resizeObserver.disconnect();
+  };
+}
+
 async function refresh() {
   const list = await send('/api/hosts');
   hosts.replaceChildren();
@@ -504,6 +603,10 @@ async function refresh() {
       try { await checkHost(host); await refresh(); }
       catch (reason) { error.textContent = reason.message; await refresh(); }
     };
+
+    const shell = document.createElement('button');
+    shell.textContent = '開啟互動終端機';
+    shell.onclick = () => startShell(host);
 
     const edit = document.createElement('button');
     edit.textContent = '編輯';
@@ -576,7 +679,7 @@ async function refresh() {
       } catch (reason) { error.textContent = reason.message; }
     };
 
-    item.append(check, edit, remove, publicKey, guide, keyAction);
+    item.append(check, shell, edit, remove, publicKey, guide, keyAction);
     if (host.keyPath && host.keyManaged) {
       const unlinkManaged = document.createElement('button');
       unlinkManaged.textContent = '解除此主機關聯';
@@ -716,6 +819,7 @@ refresh().catch((reason) => { error.textContent = reason.message; });
 
 function createServer({ dataFile, port }) {
   const unlockedKeys = new Map();
+  const webSocketServer = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024, perMessageDeflate: false });
   const server = http.createServer((req, res) => {
     const send = (status, value, contentType = 'application/json') => {
       res.writeHead(status, { 'content-type': `${contentType}; charset=utf-8`, 'cache-control': 'no-store' });
@@ -723,6 +827,17 @@ function createServer({ dataFile, port }) {
     };
     if (!trustedRequest(req, server.address()?.port || port)) return send(403, { error: '不允許的 Host 或 Origin' });
     if (req.method === 'GET' && req.url === '/') return send(200, page, 'text/html');
+    const assets = {
+      '/assets/xterm.js': [path.join(__dirname, '..', 'node_modules', '@xterm', 'xterm', 'lib', 'xterm.js'), 'text/javascript'],
+      '/assets/xterm.css': [path.join(__dirname, '..', 'node_modules', '@xterm', 'xterm', 'css', 'xterm.css'), 'text/css'],
+      '/assets/addon-fit.js': [path.join(__dirname, '..', 'node_modules', '@xterm', 'addon-fit', 'lib', 'addon-fit.js'), 'text/javascript'],
+    };
+    if (req.method === 'GET' && assets[req.url]) {
+      const [file, contentType] = assets[req.url];
+      res.writeHead(200, { 'content-type': `${contentType}; charset=utf-8`, 'cache-control': 'public, max-age=3600' });
+      fs.createReadStream(file).pipe(res);
+      return;
+    }
     if (req.method === 'GET' && req.url === '/api/keys') {
       try {
         const hosts = readHosts(dataFile);
@@ -953,7 +1068,167 @@ function createServer({ dataFile, port }) {
       }
     });
   });
-  server.once('close', () => unlockedKeys.clear());
+  server.on('upgrade', (req, socket, head) => {
+    let requestUrl;
+    try { requestUrl = new URL(req.url, `http://127.0.0.1:${server.address()?.port || port}`); }
+    catch {
+      socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    if (requestUrl.pathname !== '/api/shell'
+      || !trustedRequest(req, server.address()?.port || port)
+      || !req.headers.origin) {
+      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    const alias = requestUrl.searchParams.get('alias');
+    let knownAlias = false;
+    try { knownAlias = Boolean(alias && readHosts(dataFile).some((host) => host.alias === alias)); }
+    catch {
+      socket.write('HTTP/1.1 500 Internal Server Error\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    if (!knownAlias) {
+      socket.write('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    webSocketServer.handleUpgrade(req, socket, head, (webSocket) => {
+      webSocketServer.emit('connection', webSocket, req, alias);
+    });
+  });
+
+  webSocketServer.on('connection', (webSocket, _request, alias) => {
+    let session;
+    let pendingFingerprint;
+    let closing = false;
+    let unlockRequested = false;
+    const sendControl = (message) => {
+      if (webSocket.readyState === WebSocket.OPEN) webSocket.send(JSON.stringify(message));
+    };
+    const closeSocket = (code, reason) => {
+      if (webSocket.readyState === WebSocket.OPEN || webSocket.readyState === WebSocket.CONNECTING) {
+        try { webSocket.close(code, reason); } catch { webSocket.terminate(); }
+      }
+    };
+    const startShell = async (expectedFingerprint) => {
+      if (closing || webSocket.readyState !== WebSocket.OPEN) return;
+      const host = readHosts(dataFile).find((item) => item.alias === alias);
+      if (!host) { sendControl({ type: 'error', error: `找不到主機：${alias}` }); closeSocket(1008, 'unknown host'); return; }
+      let keyPath;
+      try { keyPath = ssh.keyPathFor(host); }
+      catch (error) { sendControl({ type: 'error', error: error.message }); closeSocket(1008, 'missing key'); return; }
+      if (!unlockedKeys.has(keyPath)) {
+        if (!unlockRequested) { unlockRequested = true; sendControl({ type: 'unlock-required' }); }
+        return;
+      }
+      try {
+        const openedSession = await ssh.openShell(dataFile, host, unlockedKeys.get(keyPath), {
+          cols: 80,
+          rows: 24,
+          ...(expectedFingerprint ? { expectedFingerprint } : {}),
+          onData: (chunk) => {
+            if (webSocket.readyState === WebSocket.OPEN) webSocket.send(chunk, { binary: true });
+          },
+          onClose: ({ error, code, signal }) => {
+            if (closing) return;
+            closing = true;
+            sendControl({ type: 'closed', ...(error ? { error: error.message } : {}), ...(code === undefined ? {} : { code }), ...(signal ? { signal } : {}) });
+            closeSocket(1000, 'ssh shell closed');
+          },
+        });
+        if (closing || webSocket.readyState !== WebSocket.OPEN) { openedSession.close(); return; }
+        session = openedSession;
+        sendControl({ type: 'started', alias, username: host.username, cols: 80, rows: 24 });
+      } catch (error) {
+        if (webSocket.readyState !== WebSocket.OPEN) return;
+        if (error.code === 'INVALID_KEY_PASSPHRASE' || error.code === 'INVALID_PRIVATE_KEY') unlockedKeys.delete(keyPath);
+        if (['HOST_TRUST_REQUIRED', 'HOST_KEY_CHANGED'].includes(error.code)) {
+          pendingFingerprint = error.fingerprint;
+          sendControl({
+            type: error.code === 'HOST_KEY_CHANGED' ? 'host-key-changed' : 'trust-required',
+            code: error.code,
+            fingerprint: error.fingerprint,
+            previousFingerprint: error.previousFingerprint,
+          });
+          return;
+        }
+        sendControl({ type: 'error', code: error.code || 'SSH_SHELL_FAILED', error: error.message });
+        closeSocket(1011, 'ssh shell failed');
+      }
+    };
+
+    webSocket.on('message', (data, isBinary) => {
+      if (isBinary) { session?.write(data); return; }
+      let message;
+      try { message = JSON.parse(data.toString()); }
+      catch { sendControl({ type: 'error', error: '無效的終端機控制訊息' }); return; }
+      if (message.type === 'resize') { session?.resize(message.cols, message.rows); return; }
+      if (message.type === 'unlock') {
+        const host = readHosts(dataFile).find((item) => item.alias === alias);
+        if (!host) { closeSocket(1008, 'unknown host'); return; }
+        try {
+          const keyPath = ssh.validateKey(host, typeof message.passphrase === 'string' ? message.passphrase : '');
+          unlockedKeys.set(keyPath, typeof message.passphrase === 'string' ? message.passphrase : '');
+          unlockRequested = false;
+          sendControl({ type: 'unlocked' });
+          startShell();
+        } catch (error) {
+          sendControl({ type: 'error', code: error.code || 'KEY_UNLOCK_FAILED', error: error.message });
+          closeSocket(1008, 'key unlock failed');
+        }
+        return;
+      }
+      if (message.type === 'unlocked') {
+        unlockRequested = false;
+        startShell();
+        return;
+      }
+      if (message.type === 'trust') {
+        if (!pendingFingerprint || message.fingerprint !== pendingFingerprint) {
+          sendControl({ type: 'error', error: '主機指紋確認資料不符' });
+          closeSocket(1008, 'invalid trust confirmation');
+          return;
+        }
+        const confirmedFingerprint = pendingFingerprint;
+        pendingFingerprint = undefined;
+        startShell(confirmedFingerprint);
+        return;
+      }
+      if (message.type === 'trust-reject') {
+        sendControl({ type: 'error', code: 'HOST_TRUST_REJECTED', error: '已拒絕主機指紋' });
+        closeSocket(1008, 'host key rejected');
+        return;
+      }
+      if (message.type === 'close') closeSocket(1000, 'client closed');
+    });
+
+    webSocket.on('close', () => {
+      if (closing) return;
+      closing = true;
+      session?.close();
+    });
+    webSocket.on('error', () => {
+      if (closing) return;
+      closing = true;
+      session?.close();
+    });
+    startShell();
+  });
+
+  server.on('close', () => {
+    unlockedKeys.clear();
+    for (const webSocket of webSocketServer.clients) webSocket.terminate();
+    webSocketServer.close();
+  });
+  const closeHttpServer = server.close.bind(server);
+  server.close = (callback) => {
+    for (const webSocket of webSocketServer.clients) webSocket.terminate();
+    return closeHttpServer(callback);
+  };
   return server;
 }
 
@@ -1022,6 +1297,108 @@ async function execCommand(dataFile, args) {
   } finally { process.removeListener('SIGINT', interrupt); }
 }
 
+function parseShellArgs(args) {
+  if (args.length !== 2 || args[0] !== 'shell' || !args[1]) throw new Error('用法：sshdeck shell <別名>');
+  return { alias: args[1] };
+}
+
+async function connectInteractiveShell(dataFile, host, passphrase, options = {}) {
+  let expectedFingerprint;
+  for (;;) {
+    try {
+      return await ssh.openShell(dataFile, host, passphrase, {
+        cols: options.cols || process.stdout.columns || 80,
+        rows: options.rows || process.stdout.rows || 24,
+        ...(expectedFingerprint ? { expectedFingerprint } : {}),
+        onData: options.onData,
+        onClose: options.onClose,
+      });
+    } catch (error) {
+      if (!['HOST_TRUST_REQUIRED', 'HOST_KEY_CHANGED'].includes(error.code) || options.confirmTrust === false) throw error;
+      if (options.confirmTrust) {
+        if (!await options.confirmTrust(error)) throw new Error('已拒絕主機指紋；未開啟終端機');
+      } else {
+        const prompt = require('node:readline/promises').createInterface({ input: process.stdin, output: process.stderr });
+        let answer;
+        try {
+          const previous = error.previousFingerprint ? `（原信任指紋 ${error.previousFingerprint}）` : '';
+          answer = await prompt.question(`主機指紋 ${error.fingerprint}${previous}。請先由可信管道核對，確認信任？[y/N] `);
+        } finally { prompt.close(); }
+        if (!/^y(es)?$/i.test(answer.trim())) throw new Error('已拒絕主機指紋；未開啟終端機');
+      }
+      expectedFingerprint = error.fingerprint;
+    }
+  }
+}
+
+function attachLocalTerminal(session, {
+  input = process.stdin,
+  output = process.stdout,
+  signalSource = process,
+  onInterrupt = () => session.close(),
+} = {}) {
+  const previousRawMode = input.isRaw;
+  const canSetRawMode = Boolean(input.isTTY && typeof input.setRawMode === 'function');
+  if (canSetRawMode) input.setRawMode(true);
+  const forwardInput = (data) => session.write(data);
+  const resize = () => session.resize(output.columns || 80, output.rows || 24);
+  input.on('data', forwardInput);
+  input.resume();
+  output.on('resize', resize);
+  signalSource.once('SIGINT', onInterrupt);
+
+  let restored = false;
+  return () => {
+    if (restored) return;
+    restored = true;
+    input.off('data', forwardInput);
+    output.off('resize', resize);
+    signalSource.removeListener('SIGINT', onInterrupt);
+    if (canSetRawMode) {
+      try { input.setRawMode(Boolean(previousRawMode)); } catch { /* stdin may already be closed */ }
+    }
+    input.pause();
+  };
+}
+
+async function shellCommand(dataFile, args) {
+  const { alias } = parseShellArgs(args);
+  const host = readHosts(dataFile).find((item) => item.alias === alias);
+  if (!host) throw new Error(`找不到主機：${alias}`);
+  const passphrase = await readSecret('登入金鑰密語（輸入隱藏；未加密請按 Enter）：');
+  let resolveClosed;
+  const closed = new Promise((resolve) => { resolveClosed = resolve; });
+  let session;
+  let restoreTerminal;
+  const interrupt = () => {
+    process.exitCode = 130;
+    session?.close();
+  };
+  try {
+    session = await connectInteractiveShell(dataFile, host, passphrase, {
+      cols: process.stdout.columns || 80,
+      rows: process.stdout.rows || 24,
+      onData: (chunk) => process.stdout.write(chunk),
+      onClose: ({ error, code, signal }) => {
+        if (error) {
+          process.stderr.write(`\r\nSSH 終端機錯誤：${error.message}\r\n`);
+          process.exitCode = 1;
+        } else if (signal) {
+          process.stderr.write(`\r\n遠端 shell 由 ${signal} 結束。\r\n`);
+          process.exitCode = 1;
+        }
+        else if (code !== undefined && code !== 0) process.exitCode = code;
+        resolveClosed();
+      },
+    });
+    process.stderr.write(`已連線至 ${host.alias}（${host.username}@${host.hostname}:${host.port}），Ctrl+D 結束終端機。\r\n`);
+    restoreTerminal = attachLocalTerminal(session, { onInterrupt: interrupt });
+    await closed;
+  } finally {
+    restoreTerminal?.();
+  }
+}
+
 async function main(args) {
   if (args[0] === 'ui') {
     let port = 8787;
@@ -1034,6 +1411,7 @@ async function main(args) {
     return;
   }
   if (args[0] === 'exec') { await execCommand(dataFileFor(), args); return; }
+  if (args[0] === 'shell') { await shellCommand(dataFileFor(), args); return; }
   if (args[0] === 'key') { await keyCommand(dataFileFor(), args); return; }
   if (args[0] === 'guide') {
     const dataFile = dataFileFor();
@@ -1046,7 +1424,7 @@ async function main(args) {
     console.log(ssh.installationGuide(host || record, ssh.managedPublicKey(keyPath)));
     return;
   }
-  if (args[0] !== 'host') throw new Error('用法：sshdeck exec <別名> -- <命令> | sshdeck host ... | sshdeck key ... | sshdeck guide <別名> | sshdeck ui');
+  if (args[0] !== 'host') throw new Error('用法：sshdeck exec <別名> -- <命令> | sshdeck shell <別名> | sshdeck host ... | sshdeck key ... | sshdeck guide <別名> | sshdeck ui');
   await hostCommand(dataFileFor(), args);
 }
 
@@ -1057,4 +1435,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { dataFileFor, hostList, openBrowser, parseExecArgs, readSecret, startUi };
+module.exports = { attachLocalTerminal, connectInteractiveShell, dataFileFor, hostList, openBrowser, parseExecArgs, parseShellArgs, readSecret, shellCommand, startUi };
