@@ -25,9 +25,9 @@ sshdeck host delete dev
 
 先新增主機設定，再執行 `sshdeck key create dev`；CLI 會以隱藏輸入詢問非空密語。金鑰為加密 Ed25519，私鑰及公鑰保存在應用資料目錄的 `keys` 子目錄。Unix 使用 0700 目錄及 0600 私鑰；Windows 透過 `icacls` 限制私鑰 ACL，ACL 設定失敗會讓建立失敗。工具不會覆寫私鑰；每次建立使用不可由別名控制的 UUID 檔名。
 
-`sshdeck key show dev` 顯示可複製公鑰；`sshdeck guide dev` 顯示帳號、公鑰 append、擁有者／權限及單獨撤銷步驟。請透過既有登入管道或主控台手動套用指南；sshdeck 不會遠端安裝公鑰或更改帳號權限。瀏覽器主機列表的「建立登入金鑰」按鈕可建立並展示公鑰及指南。
+`sshdeck key show dev` 顯示可複製公鑰；`sshdeck guide dev` 顯示帳號、公鑰 append、擁有者／權限及單獨撤銷步驟。請透過既有登入管道或主控台手動套用指南；sshdeck 不會遠端安裝公鑰或更改帳號權限。瀏覽器可建立金鑰、使用密碼欄位輸入密語、檢視／複製公鑰及查看授權指南。
 
-`sshdeck key delete dev` 僅刪除 sshdeck 管理的本機金鑰，若其他設定共用會拒絕刪除；先解除其他設定關聯。外部私鑰只記錄位置，解除關聯不會刪除原檔。刪除主機設定不會刪除任何金鑰或遠端授權。遠端撤銷須按指南手動從 `authorized_keys` 移除精確公鑰行並保留其他行。
+`sshdeck key list` 列出 sshdeck 管理的金鑰及其關聯狀態，包含主機設定已刪除後仍保留的未關聯金鑰。`sshdeck key unlink dev` 只解除主機與金鑰的關聯：外部私鑰不刪除原檔，sshdeck 管理的金鑰仍留在清單中。`sshdeck key delete dev` 或以金鑰 ID 刪除 sshdeck 管理的本機金鑰；若其他主機設定仍共用該金鑰，刪除會被拒絕，請先解除共用關聯。刪除主機設定不會刪除任何金鑰或遠端授權。`key delete` 會一併輸出公鑰及撤銷指南；遠端撤銷須手動從 `authorized_keys` 移除精確公鑰行並保留其他行。
 
 CLI 在需要時會以隱藏輸入方式詢問私鑰密語。密語不寫入設定檔、命令參數或日誌。瀏覽器介面使用密碼欄位輸入密語，僅在本機服務記憶體中保留，服務停止或按下「鎖定已解鎖金鑰」後清除。
 
