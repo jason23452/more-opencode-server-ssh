@@ -23,7 +23,7 @@
 
 - **02**：新增狀態／輪詢模組，以 `renderHostStatus`、`hostschange`、可替換的 `services.checkHost` 接入。立即檢查與既有管理區的檢查按鈕均透過 `services.checkHost` 呼叫。
 - **03**：新增終端模組，替換 `services.startShell`、提供 `beforeSelectHost`，訂閱選取／主機更新。掛載點為 `#terminal-workspace`、`#terminal-status`、`#shell-sessions`，操作按鈕為 `#connect-host`。舊 `startShell` 可在替換後移除。
-- **04**：指南掛載於 `#connection-guide`，可取代暫時新增表單 `#form` 及其原有 submit handler。完成後 `await selectHost(alias)` 再 `showPage('hosts')`，不自動連線。
+- **04**：`public/connection-guide.js` 掛載於 `#connection-guide-app`（位於 `#connection-guide` 內），以 `services.send`、`services.refresh`、`services.askNewKeyPassphrase`、`services.checkHost` 接入既有 API。`bin/sshdeck.js` 僅提供掛載點及明確登錄 `/assets/connection-guide.js`，不再保留暫時表單 `#form` 或其 submit handler。成功後由使用者按下「前往主機操作」，先 `await selectHost(alias)` 再 `showPage('hosts')`，不自動連線。當次步驟往返保留表單資料；進度持久化屬於 05。
 - **05**：以指南自己的狀態介面保存進度；共用分頁不儲存任何敏感資料，也不會重建指南表單。
 - **06**：選定主機管理掛載於 `#advanced-host-actions`。`#legacy-management` 暫時保留完整主機、金鑰及單次命令操作，正式搬移後可移除重複入口。
 
