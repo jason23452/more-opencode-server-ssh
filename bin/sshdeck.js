@@ -554,20 +554,27 @@ async function unlock(host) {
   return true;
 }
 
-async function checkHost(host, expectedFingerprint) {
-  const route = '/api/hosts/' + encodeURIComponent(host.alias) + '/check';
+async function checkHost(host, options = {}) {
+  const automatic = options && options.automatic === true;
+  const expectedFingerprint = options && options.expectedFingerprint;
+  const route = '/api/hosts/' + encodeURIComponent(host.alias) + (automatic ? '/ssh-check' : '/check');
   const body = expectedFingerprint ? { expectedFingerprint } : {};
   let { response, value } = await request(route, 'POST', body);
   if (response.status === 428) {
+    if (automatic) return { state: 'needs-unlock', error: value.error };
     if (!await unlock(host)) return;
     ({ response, value } = await request(route, 'POST', body));
   }
   if (response.status === 409 && ['HOST_TRUST_REQUIRED', 'HOST_KEY_CHANGED'].includes(value.code)) {
+    if (automatic) return { state: value.code === 'HOST_KEY_CHANGED' ? 'changed' : 'untrusted', error: value.error, fingerprint: value.fingerprint };
+
     const previous = value.previousFingerprint ? '（原信任 ' + value.previousFingerprint + '）' : '';
     if (!confirm('SSH 主機指紋：' + value.fingerprint + previous + '。你已從可信管道核對此指紋嗎？')) {
-      throw Error('已拒絕主機指紋');
+      const reason = Error('已拒絕主機指紋');
+      reason.code = value.code;
+      throw reason;
     }
-    return checkHost(host, value.fingerprint);
+    return checkHost(host, { expectedFingerprint: value.fingerprint });
   }
   if (!response.ok) throw Error(value.error || 'SSH 檢查失敗');
   return value;
@@ -916,7 +923,7 @@ document.querySelector('#lock-keys').onclick = async () => {
   catch (reason) { error.textContent = reason.message; }
 };
 
-window.sshdeck.configure({ request, send, unlock, checkHost, startShell, refresh, showKeyInfo, askNewKeyPassphrase });
+window.sshdeck.configure({ request, send, unlock, checkHost, checkSSH: (host, options = {}) => checkHost(host, { ...options, automatic: true }), startShell, refresh, showKeyInfo, askNewKeyPassphrase });
 refresh().catch((reason) => { error.textContent = reason.message; document.querySelector('#hosts-loading').textContent = '無法載入受管主機，請重新整理重試。'; });
 </script>
 </body>
@@ -965,11 +972,10 @@ function createServer({ dataFile, port }) {
     }
     if (req.method === 'GET' && req.url === '/api/hosts') {
       try {
-        const statuses = ssh.getStatuses(dataFile);
         return send(200, readHosts(dataFile).map((host) => ({
           ...host,
           keyManaged: ssh.isManagedKeyPath(dataFile, host.keyPath),
-          check: statuses[host.alias] || { state: 'unchecked' },
+          check: ssh.statusForHost(dataFile, host),
         })));
       } catch (error) { return send(500, { error: error.message }); }
     }
@@ -979,8 +985,9 @@ function createServer({ dataFile, port }) {
       res.writeHead(204, { 'cache-control': 'no-store' });
       return res.end();
     }
-    const match = req.url.match(/^\/api\/hosts\/([^/?]+)(?:\/(check))?$/);
-    const checking = Boolean(match && match[2] === 'check');
+    const match = req.url.match(/^\/api\/hosts\/([^/?]+)(?:\/(check|ssh-check))?$/);
+    const checking = Boolean(match && ['check', 'ssh-check'].includes(match[2]));
+    const sshOnlyCheck = Boolean(match && match[2] === 'ssh-check');
     const keyActionMatch = req.url.match(/^\/api\/hosts\/([^/?]+)\/key\/(delete|unlink)$/);
     const managedKeyDelete = Boolean(managedKeyRoute && managedKeyRoute[2] === 'delete' && req.method === 'POST');
     const keyPublicMatch = req.url.match(/^\/api\/hosts\/([^/?]+)\/key\/public$/);
@@ -1123,7 +1130,9 @@ function createServer({ dataFile, port }) {
           const keyPath = ssh.keyPathFor(host);
           if (!unlockedKeys.has(keyPath)) return send(428, { code: 'NEEDS_UNLOCK', error: '請先解鎖此主機的登入金鑰' });
           try {
-            const result = await ssh.checkWithDocker(dataFile, host, unlockedKeys.get(keyPath), {
+            const result = sshOnlyCheck
+              ? await ssh.checkSSH(dataFile, host, unlockedKeys.get(keyPath), { ...(typeof input.expectedFingerprint === 'string' ? { expectedFingerprint: input.expectedFingerprint } : {}) })
+              : await ssh.checkWithDocker(dataFile, host, unlockedKeys.get(keyPath), {
               ...(typeof input.expectedFingerprint === 'string' ? { expectedFingerprint: input.expectedFingerprint } : {}),
             });
             return send(200, result);

@@ -29,6 +29,10 @@ p, li, dd, h3, label { overflow-wrap: anywhere; }
 .host-list li.selected { border: 2px solid #245ba0; padding: calc(.8rem - 1px); }
 .host-select { width: 100%; text-align: left; font-weight: 600; overflow-wrap: anywhere; }
 .host-status { font-size: .9rem; margin: .6rem 0 0; }
+.host-status::before { content: "● "; color: #64748b; }
+.host-status[data-state="success"]::before { color: #16803c; }
+.host-status[data-state="failure"]::before { color: #b42318; }
+.host-status[data-state="pending"]::before { color: #64748b; }
 #host-workspace, #connection-guide { background: white; border: 1px solid #bcc9d8; border-radius: .6rem; padding: 1rem; margin: 1rem 0; }
 .target-info { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .3rem 1rem; }
 .target-info dt { font-weight: 600; }
