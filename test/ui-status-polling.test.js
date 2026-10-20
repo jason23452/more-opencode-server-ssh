@@ -15,7 +15,9 @@ test('SSH 狀態檢查共用請求並保留工作區互動狀態', { skip: brows
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
     await page.goto(server.url);
+    await page.waitForFunction(() => document.querySelector('#hosts-loading').hidden);
     await page.evaluate(() => {
+      window.sshdeck.services.refresh = async () => {};
       let finish;
       window.checkCalls = 0;
       const check = () => { window.checkCalls++; return new Promise((resolve) => { finish = resolve; }); };
@@ -49,7 +51,9 @@ test('狀態檢查忽略舊設定回應，解鎖取消及指紋拒絕不誤報�
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
     await page.goto(server.url);
+    await page.waitForFunction(() => document.querySelector('#hosts-loading').hidden);
     await page.evaluate(() => {
+      window.sshdeck.services.refresh = async () => {};
       window.pendingChecks = [];
       window.sshdeck.services.checkSSH = () => new Promise((resolve) => window.pendingChecks.push(resolve));
       window.sshdeck.services.checkHost = async () => undefined;
@@ -130,6 +134,7 @@ test('輪詢間隔為 30 秒，頁面隱藏時暫停且返回時立即檢查', {
       Object.defineProperty(document, 'hidden', { configurable: true, get: () => window.__pageHidden });
     });
     await page.goto(server.url);
+    await page.waitForFunction(() => document.querySelector('#hosts-loading').hidden);
     await page.evaluate(() => {
       window.checkCalls = 0;
       window.sshdeck.services.checkSSH = async () => { window.checkCalls++; return { ok: true }; };

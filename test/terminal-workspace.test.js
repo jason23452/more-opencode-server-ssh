@@ -35,6 +35,7 @@ test('互動終端機一次只連線到選定主機，切換確認、分頁保�
     });
     await page.goto(server.url);
     await page.waitForFunction(() => document.querySelector('#hosts-loading').hidden);
+    await page.evaluate(() => { window.sshdeck.services.refresh = async () => {}; });
     await page.evaluate(() => window.sshdeck.setHosts([
       { alias: 'alpha', hostname: 'alpha.invalid', port: 22, username: 'tester' },
       { alias: 'beta', hostname: 'beta.invalid', port: 22, username: 'tester' },
