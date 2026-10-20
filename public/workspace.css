@@ -1,0 +1,61 @@
+:root { color-scheme: light; font-family: system-ui, sans-serif; color: #172b42; background: #f3f6fa; line-height: 1.6; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; }
+button, input, select { font: inherit; }
+button, summary { cursor: pointer; }
+button { border: 1px solid #8293a8; border-radius: .4rem; background: white; color: #172b42; padding: .5rem .8rem; }
+button:hover { background: #e9f2ff; }
+button:disabled { cursor: default; opacity: .6; }
+:focus-visible { outline: 3px solid #ae5100; outline-offset: 3px; }
+.skip-link { position: fixed; top: -5rem; left: 1rem; z-index: 10; padding: .7rem; background: white; }
+.skip-link:focus { top: .5rem; }
+.sidebar { position: fixed; inset: 0 auto 0 0; width: 13rem; padding: 1.2rem; background: #172b42; color: white; }
+.brand { font-size: 1.7rem; font-weight: 700; margin: 0 0 1.5rem; }
+#navigation [role="tablist"] { display: grid; gap: .6rem; }
+#navigation button { text-align: left; border-color: transparent; background: transparent; color: white; }
+#navigation button[aria-selected="true"] { background: #e7f0ff; color: #122941; font-weight: 700; }
+#navigation-toggle { display: none; }
+main { margin-left: 13rem; padding: 1.5rem clamp(1rem, 3vw, 3rem); max-width: 100rem; min-width: 0; }
+h1 { margin-top: 0; font-size: 1.65rem; }
+h2 { font-size: 1.4rem; }
+h3 { font-size: 1.15rem; }
+section, details, form, ul, li, div { min-width: 0; }
+p, li, dd, h3, label { overflow-wrap: anywhere; }
+#error:empty { display: none; }
+#error { border-left: 4px solid #ae5100; padding: .7rem; background: #fff3df; }
+.host-list { list-style: none; padding: 0; display: grid; gap: .7rem; }
+.host-list li { background: white; border: 1px solid #bcc9d8; border-radius: .6rem; padding: .8rem; }
+.host-list li.selected { border: 2px solid #245ba0; padding: calc(.8rem - 1px); }
+.host-select { width: 100%; text-align: left; font-weight: 600; overflow-wrap: anywhere; }
+.host-status { font-size: .9rem; margin: .6rem 0 0; }
+#host-workspace, #connection-guide { background: white; border: 1px solid #bcc9d8; border-radius: .6rem; padding: 1rem; margin: 1rem 0; }
+.target-info { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .3rem 1rem; }
+.target-info dt { font-weight: 600; }
+.target-info dd { margin: 0; }
+#host-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+details { border: 1px solid #bcc9d8; border-radius: .4rem; padding: .8rem; margin-top: 1rem; }
+summary { font-weight: 600; }
+form { display: flex; flex-wrap: wrap; align-items: end; gap: .8rem; margin: 1rem 0; }
+label { display: grid; gap: .25rem; max-width: 100%; }
+input, select { border: 1px solid #8293a8; border-radius: .3rem; background: white; padding: .4rem; min-width: 0; max-width: 100%; }
+#form label { flex: 1 1 15rem; }
+#host-management, #managed-keys { padding-left: 1.3rem; }
+#host-management li, #managed-keys li { margin: 1rem 0; }
+#host-management button, #managed-keys button { margin: .2rem; }
+pre { max-width: 100%; overflow-x: auto; padding: .8rem; background: #eaf0f7; white-space: pre; }
+pre:empty { display: none; }
+.sshdeck-terminal { width: 100%; overflow: hidden; }
+dialog { max-width: min(35rem, calc(100% - 2rem)); border: 1px solid #8293a8; border-radius: .6rem; }
+dialog::backdrop { background: #172b4280; }
+@media (max-width: 700px) {
+  .sidebar { position: relative; width: 100%; padding: .7rem 1rem; }
+  .brand { display: inline-block; font-size: 1.3rem; margin: 0 1rem 0 0; }
+  #navigation-toggle { display: inline-block; }
+  #navigation { display: none; margin-top: .8rem; }
+  .navigation-open #navigation { display: block; }
+  main { margin-left: 0; padding: 1rem; }
+  form { align-items: stretch; }
+  form label { flex: 1 1 100%; }
+  .target-info { grid-template-columns: 1fr; }
+}

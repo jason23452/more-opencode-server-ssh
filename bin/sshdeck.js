@@ -351,26 +351,62 @@ const page = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width">
 <link rel="stylesheet" href="/assets/xterm.css">
+<link rel="stylesheet" href="/assets/workspace.css">
 <title>sshdeck 主機設定</title>
+<body>
+<a class="skip-link" href="#main">跳到主要內容</a>
+<aside class="sidebar">
+  <p class="brand">sshdeck</p>
+  <button id="navigation-toggle" type="button" aria-expanded="false" aria-controls="navigation">開啟導覽</button>
+  <nav id="navigation" aria-label="主要導覽">
+    <div role="tablist" aria-label="工作區分頁" aria-orientation="vertical">
+      <button id="hosts-tab" type="button" role="tab" aria-controls="hosts-panel" aria-selected="true">主機操作</button>
+      <button id="guide-tab" type="button" role="tab" aria-controls="guide-panel" aria-selected="false" tabindex="-1">建立指南</button>
+    </div>
+  </nav>
+</aside>
+<main id="main" tabindex="-1">
 <h1>主機設定管理</h1>
+<p id="error" role="alert"></p>
+<section id="hosts-panel" role="tabpanel" aria-labelledby="hosts-tab" tabindex="-1">
+  <h2>主機操作</h2>
+  <p>先選取受管主機，再開始操作。選取不會自動建立 SSH 終端連線。</p>
+  <h3>全部受管主機</h3>
+  <p id="hosts-loading" role="status">正在載入受管主機…</p>
+  <div id="empty-hosts" hidden><p>尚未加入受管主機。</p><button type="button" data-page="guide">開始建立指南</button></div>
+  <ul id="hosts" class="host-list" aria-label="受管主機"></ul>
+  <p id="select-host-hint">請從上方選取操作目標。</p>
+  <section id="host-workspace" aria-labelledby="target-heading" hidden>
+    <h3 id="target-heading">操作目標：<span id="target-alias"></span></h3>
+    <dl class="target-info"><dt>主機位址</dt><dd id="target-address"></dd><dt>登入帳號</dt><dd id="target-username"></dd></dl>
+    <div id="host-actions"><button id="connect-host" type="button">連線</button><button id="check-selected-host" type="button">立即檢查</button></div>
+    <div id="terminal-workspace"><h3>SSH 互動終端機</h3><p id="terminal-status" role="status">尚未開啟終端機</p><div id="shell-sessions"></div></div>
+    <details id="advanced-management"><summary>進階管理</summary><div id="advanced-host-actions"><button id="open-legacy-management" type="button">開啟既有主機與金鑰管理</button></div></details>
+  </section>
+  <details id="legacy-management"><summary>既有主機與金鑰管理</summary>
+    <p>此處保留主機編輯、授權指南與金鑰管理操作。</p>
+    <ul id="host-management"></ul>
+    <button id="lock-keys" type="button">鎖定已解鎖金鑰</button>
+    <h3>本機管理金鑰</h3><ul id="managed-keys"></ul>
+    <h3>遠端單次命令</h3>
+    <form id="exec-form"><label>主機別名 <select id="exec-host"></select></label><label>遠端命令 <input id="exec-command" required></label><button>執行</button></form>
+    <div id="exec-sessions" aria-live="polite"></div>
+  </details>
+</section>
+<section id="guide-panel" role="tabpanel" aria-labelledby="guide-tab" tabindex="-1" hidden>
+<h2>建立指南</h2>
+<div id="connection-guide">
+<p>加入已有的遠端主機連線資料，再從主機操作頁的「既有主機與金鑰管理」建立登入金鑰及取得授權指南。</p>
 <form id="form">
-  <label>別名 <input name="alias" required></label>
-  <label>主機名稱 <input name="hostname" required></label>
+  <label>主機別名 <input name="alias" required></label>
+  <label>主機位址 <input name="hostname" required></label>
   <label>連接埠 <input name="port" type="number" value="22" min="1" max="65535" required></label>
   <label>登入帳號 <input name="username" required></label>
-  <label>既有金鑰路徑 <input name="keyPath"></label>
+  <label>既有金鑰路徑（執行 sshdeck 的電腦） <input name="keyPath"></label>
   <button>新增主機</button>
 </form>
-<button id="lock-keys" type="button">鎖定已解鎖金鑰</button>
-<p id="error" role="alert"></p>
-<ul id="hosts"></ul>
-<h2>本機管理金鑰</h2>
-<ul id="managed-keys"></ul>
-<h2>遠端單次命令</h2>
-<form id="exec-form"><label>主機別名 <select id="exec-host"></select></label><label>遠端命令 <input id="exec-command" required></label><button>執行</button></form>
-<div id="exec-sessions" aria-live="polite"></div>
-<h2>SSH 互動終端機</h2>
-<div id="shell-sessions"></div>
+</div>
+</section>
 <dialog id="unlock-dialog">
   <form id="unlock-form">
     <label>登入金鑰密語 <input id="passphrase" type="password" autocomplete="current-password"></label>
@@ -391,11 +427,13 @@ const page = `<!doctype html>
   <pre id="key-output"></pre>
   <button id="copy-public-key" type="button" disabled>複製公鑰</button>
 </section>
+</main>
 <script src="/assets/xterm.js"></script>
 <script src="/assets/addon-fit.js"></script>
+<script src="/assets/workspace.js"></script>
 <script>
 const form = document.querySelector('#form');
-const hosts = document.querySelector('#hosts');
+const hosts = document.querySelector('#host-management');
 const managedKeys = document.querySelector('#managed-keys');
 const shellSessions = document.querySelector('#shell-sessions');
 const error = document.querySelector('#error');
@@ -544,7 +582,7 @@ function startShell(host) {
   close.textContent = '關閉終端機';
   const terminalElement = document.createElement('div');
   terminalElement.className = 'sshdeck-terminal';
-  terminalElement.style.cssText = 'height:360px; min-width:320px; background:#111; padding:6px;';
+  terminalElement.style.cssText = 'height:360px; min-width:0; background:#111; padding:6px;';
   section.append(heading, close, terminalElement);
   shellSessions.prepend(section);
 
@@ -569,7 +607,7 @@ function startShell(host) {
   };
   const resize = () => {
     try { fit.fit(); sendControl({ type: 'resize', cols: terminal.cols, rows: terminal.rows }); }
-    catch { /* hidden or detached terminal */ }
+    catch { /* 終端機隱藏或已移除時，等待下一次尺寸更新。 */ }
   };
   const terminalEncoder = new TextEncoder();
   terminal.onData((data) => {
@@ -629,6 +667,7 @@ function startShell(host) {
 
 async function refresh() {
   const list = await send('/api/hosts');
+  window.sshdeck.setHosts(list);
   hosts.replaceChildren();
   for (const host of list) {
     const item = document.createElement('li');
@@ -653,13 +692,20 @@ async function refresh() {
     check.textContent = '檢查 SSH';
     check.onclick = async () => {
       error.textContent = '';
-      try { await checkHost(host); await refresh(); }
+      try { await window.sshdeck.services.checkHost(host); await refresh(); }
       catch (reason) { error.textContent = reason.message; await refresh(); }
     };
 
     const shell = document.createElement('button');
     shell.textContent = '開啟互動終端機';
-    shell.onclick = () => startShell(host);
+    shell.onclick = async () => {
+      try {
+        if (await window.sshdeck.selectHost(host.alias)) {
+          window.sshdeck.showPage('hosts');
+          await window.sshdeck.services.startShell(window.sshdeck.selectedHost);
+        }
+      } catch (reason) { error.textContent = reason.message; }
+    };
 
     const edit = document.createElement('button');
     edit.textContent = '編輯';
@@ -749,7 +795,9 @@ async function refresh() {
     hosts.append(item);
   }
   const selector = document.querySelector('#exec-host');
+  const previousAlias = selector.value;
   selector.replaceChildren(...list.map((host) => { const option = document.createElement('option'); option.value = host.alias; option.textContent = host.alias + ' — ' + host.username + '@' + host.hostname; return option; }));
+  if (list.some((host) => host.alias === previousAlias)) selector.value = previousAlias;
   const records = await send('/api/keys');
   managedKeys.replaceChildren();
   for (const record of records) {
@@ -858,6 +906,8 @@ form.onsubmit = async (event) => {
     form.reset();
     form.elements.port.value = 22;
     await refresh();
+    await window.sshdeck.selectHost(host.alias);
+    window.sshdeck.showPage('hosts');
   } catch (reason) { error.textContent = reason.message; }
 };
 
@@ -866,8 +916,10 @@ document.querySelector('#lock-keys').onclick = async () => {
   catch (reason) { error.textContent = reason.message; }
 };
 
-refresh().catch((reason) => { error.textContent = reason.message; });
+window.sshdeck.configure({ request, send, unlock, checkHost, startShell, refresh, showKeyInfo, askNewKeyPassphrase });
+refresh().catch((reason) => { error.textContent = reason.message; document.querySelector('#hosts-loading').textContent = '無法載入受管主機，請重新整理重試。'; });
 </script>
+</body>
 </html>`;
 
 function createServer({ dataFile, port }) {
@@ -884,6 +936,8 @@ function createServer({ dataFile, port }) {
       '/assets/xterm.js': [path.join(__dirname, '..', 'node_modules', '@xterm', 'xterm', 'lib', 'xterm.js'), 'text/javascript'],
       '/assets/xterm.css': [path.join(__dirname, '..', 'node_modules', '@xterm', 'xterm', 'css', 'xterm.css'), 'text/css'],
       '/assets/addon-fit.js': [path.join(__dirname, '..', 'node_modules', '@xterm', 'addon-fit', 'lib', 'addon-fit.js'), 'text/javascript'],
+      '/assets/workspace.js': [path.join(__dirname, '..', 'public', 'workspace.js'), 'text/javascript'],
+      '/assets/workspace.css': [path.join(__dirname, '..', 'public', 'workspace.css'), 'text/css'],
     };
     if (req.method === 'GET' && assets[req.url]) {
       const [file, contentType] = assets[req.url];
