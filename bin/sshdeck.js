@@ -387,6 +387,7 @@ const page = `<!doctype html>
   </form>
 </dialog>
 <section aria-label="登入金鑰資訊">
+  <label id="guide-username-label" hidden>指南中的遠端使用者名稱 <input id="guide-username" autocomplete="off"></label>
   <pre id="key-output"></pre>
   <button id="copy-public-key" type="button" disabled>複製公鑰</button>
 </section>
@@ -407,7 +408,11 @@ const newKeyPassphrase = document.querySelector('#new-key-passphrase');
 const confirmKeyPassphrase = document.querySelector('#confirm-key-passphrase');
 const keyOutput = document.querySelector('#key-output');
 const copyPublicKey = document.querySelector('#copy-public-key');
+const guideUsernameLabel = document.querySelector('#guide-username-label');
+const guideUsername = document.querySelector('#guide-username');
 let currentPublicKey = '';
+let currentGuide = '';
+let currentGuideUsername = '';
 
 async function request(url, method = 'GET', body) {
   const response = await fetch(url, {
@@ -479,9 +484,25 @@ function askNewKeyPassphrase() {
 
 function showKeyInfo(publicKey, guide = '') {
   currentPublicKey = publicKey || '';
-  keyOutput.textContent = (publicKey ? '公鑰：\\n' + publicKey + '\\n\\n' : '') + guide;
+  currentGuide = guide;
+  const hasGuide = Boolean(guide);
+  guideUsernameLabel.hidden = !hasGuide;
+  if (hasGuide) {
+    currentGuideUsername = guide.match(/登入帳號：([^\\n]+)/)?.[1] || '';
+    guideUsername.value = currentGuideUsername;
+  }
+  renderKeyInfo();
   copyPublicKey.disabled = !currentPublicKey;
 }
+
+function renderKeyInfo() {
+  const quote = (value) => "'" + value.replaceAll("'", "'\\\\''") + "'";
+  const guide = currentGuide.replaceAll('登入帳號：' + currentGuideUsername, '登入帳號：' + guideUsername.value)
+    .replaceAll(quote(currentGuideUsername), quote(guideUsername.value));
+  keyOutput.textContent = (currentPublicKey ? '公鑰：\\n' + currentPublicKey + '\\n\\n' : '') + guide;
+}
+
+guideUsername.addEventListener('input', renderKeyInfo);
 
 copyPublicKey.onclick = async () => {
   try { await navigator.clipboard.writeText(currentPublicKey); error.textContent = '已複製公鑰'; }
