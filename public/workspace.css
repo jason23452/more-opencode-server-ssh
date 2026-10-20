@@ -43,7 +43,16 @@ summary { font-weight: 600; }
 form { display: flex; flex-wrap: wrap; align-items: end; gap: .8rem; margin: 1rem 0; }
 label { display: grid; gap: .25rem; max-width: 100%; }
 input, select { border: 1px solid #8293a8; border-radius: .3rem; background: white; padding: .4rem; min-width: 0; max-width: 100%; }
-#form label { flex: 1 1 15rem; }
+#connection-guide-app form label { flex: 1 1 15rem; }
+.step-progress { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .5rem; padding: 0; list-style: none; }
+.step-progress li { padding: .45rem; border-bottom: 3px solid #bcc9d8; }
+.step-progress li[aria-current="step"] { border-color: #245ba0; font-weight: 700; }
+.guide-step > p { max-width: 75ch; }
+.guide-step form { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); }
+.guide-step label { margin: .5rem 0; }
+.guide-navigation { display: flex; gap: .6rem; margin-top: 1rem; }
+.guide-error { padding: .5rem; border-left: 4px solid #b42318; background: #fff3df; }
+.guide-step pre { max-height: 22rem; }
 #host-management, #managed-keys { padding-left: 1.3rem; }
 #host-management li, #managed-keys li { margin: 1rem 0; }
 #host-management button, #managed-keys button { margin: .2rem; }
@@ -61,5 +70,6 @@ dialog::backdrop { background: #172b4280; }
   main { margin-left: 0; padding: 1rem; }
   form { align-items: stretch; }
   form label { flex: 1 1 100%; }
+  .step-progress { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .target-info { grid-template-columns: 1fr; }
 }

@@ -396,15 +396,8 @@ const page = `<!doctype html>
 <section id="guide-panel" role="tabpanel" aria-labelledby="guide-tab" tabindex="-1" hidden>
 <h2>建立指南</h2>
 <div id="connection-guide">
-<p>加入已有的遠端主機連線資料，再從主機操作頁的「既有主機與金鑰管理」建立登入金鑰及取得授權指南。</p>
-<form id="form">
-  <label>主機別名 <input name="alias" required></label>
-  <label>主機位址 <input name="hostname" required></label>
-  <label>連接埠 <input name="port" type="number" value="22" min="1" max="65535" required></label>
-  <label>登入帳號 <input name="username" required></label>
-  <label>既有金鑰路徑（執行 sshdeck 的電腦） <input name="keyPath"></label>
-  <button>新增主機</button>
-</form>
+<p>依序準備連線資料、登入金鑰及遠端授權，再主動檢查 SSH 連線。</p>
+<div id="connection-guide-app"></div>
 </div>
 </section>
 <dialog id="unlock-dialog">
@@ -432,7 +425,6 @@ const page = `<!doctype html>
 <script src="/assets/addon-fit.js"></script>
 <script src="/assets/workspace.js"></script>
 <script>
-const form = document.querySelector('#form');
 const hosts = document.querySelector('#host-management');
 const managedKeys = document.querySelector('#managed-keys');
 const shellSessions = document.querySelector('#shell-sessions');
@@ -942,21 +934,6 @@ document.querySelector('#exec-form').onsubmit = async (event) => {
   finally { cancel.disabled = true; }
 };
 
-form.onsubmit = async (event) => {
-  event.preventDefault();
-  error.textContent = '';
-  const host = Object.fromEntries(new FormData(form));
-  host.port = Number(host.port);
-  try {
-    await send('/api/hosts', 'POST', host);
-    form.reset();
-    form.elements.port.value = 22;
-    await refresh();
-    await window.sshdeck.selectHost(host.alias);
-    window.sshdeck.showPage('hosts');
-  } catch (reason) { error.textContent = reason.message; }
-};
-
 document.querySelector('#lock-keys').onclick = async () => {
   try { await send('/api/lock', 'POST', {}); error.textContent = '已鎖定所有登入金鑰'; }
   catch (reason) { error.textContent = reason.message; }
@@ -966,6 +943,7 @@ window.sshdeck.configure({ request, send, unlock, checkHost, checkSSH: (host, op
 refresh().catch((reason) => { error.textContent = reason.message; document.querySelector('#hosts-loading').textContent = '無法載入受管主機，請重新整理重試。'; });
 </script>
 <script src="/assets/terminal.js"></script>
+<script src="/assets/connection-guide.js"></script>
 </body>
 </html>`;
 
@@ -986,6 +964,7 @@ function createServer({ dataFile, port }) {
       '/assets/workspace.js': [path.join(__dirname, '..', 'public', 'workspace.js'), 'text/javascript'],
       '/assets/workspace.css': [path.join(__dirname, '..', 'public', 'workspace.css'), 'text/css'],
       '/assets/terminal.js': [path.join(__dirname, '..', 'public', 'terminal.js'), 'text/javascript'],
+      '/assets/connection-guide.js': [path.join(__dirname, '..', 'public', 'connection-guide.js'), 'text/javascript'],
     };
     if (req.method === 'GET' && assets[req.url]) {
       const [file, contentType] = assets[req.url];
