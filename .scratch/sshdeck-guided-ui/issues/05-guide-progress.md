@@ -25,4 +25,4 @@ Spec: [SSH 主機操作介面與逐步建立指南](../spec.md)
 
 ## Comments
 
-尚未實作；完成時附驗證證據並更新 checklist。
+已加入版號 1 的 localStorage allowlist 持久層、單草稿／每主機索引、目前主機設定指紋比對與錯誤提示。`node --check public/connection-guide.js`、`npm ci`、`npm test` 通過（19 pass、0 fail）；23 項略過，其中指南 Chromium 測試因未設定 `SSHDECK_PLAYWRIGHT_MODULE` 而未執行。逐步刷新、多主機隔離、損壞／拒寫與敏感字串端對端驗證仍待有 Playwright 環境時完成，故 checklist 保持未勾選。限制：localStorage 不可用時僅能在本次頁面使用，無法跨刷新恢復。

@@ -24,7 +24,7 @@
 - **02**：新增狀態／輪詢模組，以 `renderHostStatus`、`hostschange`、可替換的 `services.checkHost` 接入。立即檢查與既有管理區的檢查按鈕均透過 `services.checkHost` 呼叫。
 - **03**：新增終端模組，替換 `services.startShell`、提供 `beforeSelectHost`，訂閱選取／主機更新。掛載點為 `#terminal-workspace`、`#terminal-status`、`#shell-sessions`，操作按鈕為 `#connect-host`。舊 `startShell` 可在替換後移除。
 - **04**：`public/connection-guide.js` 掛載於 `#connection-guide-app`（位於 `#connection-guide` 內），以 `services.send`、`services.refresh`、`services.askNewKeyPassphrase`、`services.checkHost` 接入既有 API。`bin/sshdeck.js` 僅提供掛載點及明確登錄 `/assets/connection-guide.js`，不再保留暫時表單 `#form` 或其 submit handler。成功後由使用者按下「前往主機操作」，先 `await selectHost(alias)` 再 `showPage('hosts')`，不自動連線。當次步驟往返保留表單資料；進度持久化屬於 05。
-- **05**：以指南自己的狀態介面保存進度；共用分頁不儲存任何敏感資料，也不會重建指南表單。
+- **05**：以指南自己的狀態介面保存進度；共用分頁不儲存任何敏感資料，也不會重建指南表單。指南使用版號為 1 的 `localStorage` allowlist（每台主機一筆、尚未建立主機一筆草稿），不保存公鑰、指令、私鑰路徑、密語或解鎖資料；載入後須依目前主機與金鑰狀態核對。無法讀寫或資料損壞時清除損壞項並顯示無法恢復提示，當次仍可操作。
 - **06**：選定主機管理掛載於 `#advanced-host-actions`。`#legacy-management` 暫時保留完整主機、金鑰及單次命令操作，正式搬移後可移除重複入口。
 
 01／02 已完成導覽、工作區與 SSH 狀態輪詢。03 將既有多工作階段入口收斂為目前選取受管主機的單一終端連線；04／05／06 仍負責建立指南、進度持久化與進階管理。
