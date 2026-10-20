@@ -6,6 +6,7 @@
 
 - 每個功能使用 `.scratch/<feature-slug>/`。
 - 規格使用 `spec.md`。
+- 既有功能的後續變更使用 `.scratch/<feature-slug>/changes/<change-slug>/spec.md` 保存獨立提案；變更目錄內的 `issues/` 存放該輪票單。提案需連結原 spec 與相關既有票單。除非使用者明確確認，否則不回寫原 spec。
 - 實作票單各自存為 `issues/<NN>-<slug>.md`，由 `01` 起編號。
 - Triage 狀態記錄於票單頂部附近的 `Status:`；標籤對應見 `triage-labels.md`。
 - 討論紀錄追加至檔案底部的 `## Comments`。

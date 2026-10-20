@@ -16,7 +16,11 @@ The issue tracker and triage label vocabulary should have been provided to you. 
 
 Check with the user that these seams match their expectations.
 
-3. Write the spec using the template below, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage.
+3. Determine the destination before writing:
+   - For a new, independent feature, create its canonical `spec.md` in a new feature directory.
+   - For an extension to an existing feature, do not overwrite or directly append to the existing `spec.md`. Read and cite the existing spec as context, then create a separate change proposal under that feature's `changes/<change-slug>/spec.md`. The proposal must state the existing spec it extends, the change scope, and any relevant existing tickets or dependencies. The user may explicitly approve integrating the change summary back into the canonical spec; absent that approval, keep the proposal separate.
+
+   Write the spec using the template below, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage.
 
 <spec-template>
 
