@@ -21,6 +21,10 @@ test('建立指南驗證四步流程、新舊金鑰、授權及主動檢查結�
     const page = await browser.newPage({ permissions: ['clipboard-read', 'clipboard-write'] });
     const pageErrors = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
+    await page.routeWebSocket(/\/api\/shell\?alias=new-guide$/, (socket) => {
+      socket.onMessage(() => {});
+      socket.send(JSON.stringify({ type: 'started' }));
+    });
     await page.route(/\/api\/hosts\/[^/]+\/ssh-check$/, (route) => route.fulfill({ status: 428, contentType: 'application/json', body: JSON.stringify({ code: 'NEEDS_UNLOCK', error: '需解鎖測試金鑰' }) }));
     await page.goto(server.url);
     await page.evaluate(async () => fetch('/api/hosts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ alias: 'collision', hostname: 'other.invalid', port: 22, username: 'alice' }) }));
@@ -91,6 +95,9 @@ test('建立指南驗證四步流程、新舊金鑰、授權及主動檢查結�
     assert.equal(await page.locator('#hosts-panel').isVisible(), true);
     assert.equal(await page.locator('#target-alias').textContent(), 'new-guide');
     assert.equal(await page.locator('#terminal-status').textContent(), '尚未開啟終端機');
+    await page.locator('#connect-host').click();
+    await page.waitForFunction(() => document.querySelector('#terminal-status').textContent.includes('已連線至 new-guide'));
+    assert.equal(await page.locator('#shell-sessions section').count(), 1);
     assert.equal(await page.evaluate(() => window.guideCheckCount), 2);
     const firstProgress = await page.evaluate(() => JSON.parse(localStorage.getItem('sshdeck.connection-guide.v1')));
     assert.deepEqual(Object.keys(firstProgress.hosts), ['new-guide']);
@@ -203,6 +210,62 @@ test('指南進度資料損壞或瀏覽器拒絕寫入時仍可使用', {
     await page.locator('#guide-step-title').filter({ hasText: '步驟 2' }).waitFor();
     assert.match(await page.locator('.guide-storage-warning').textContent(), /仍可繼續/);
     assert.equal((await (await fetch(`${server.url}/api/hosts`)).json()).some((host) => host.alias === 'storage-host'), true);
+  } finally {
+    if (browser) await browser.close();
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('指南檢查沿用主動解鎖與主機指紋確認，不連線遠端', {
+  skip: browserModule ? false : '設定 SSHDECK_PLAYWRIGHT_MODULE 為 Playwright 模組絕對路徑以執行 Chromium 驗證。',
+}, async () => {
+  const { chromium } = require(browserModule);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sshdeck-guide-trust-'));
+  const dataFile = path.join(directory, 'hosts.json');
+  const key = ssh.createManagedKey(dataFile, 'guide-trust', 'unlock passphrase', {});
+  const server = await startUi({ port: 0, dataFile, openBrowser: async () => {}, log: () => {} });
+  let browser;
+  try {
+    const added = await fetch(server.url + '/api/hosts', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ alias: 'guide-host', hostname: 'intercepted.invalid', port: 22, username: 'tester', keyPath: key.keyPath }),
+    });
+    assert.equal(added.status, 201);
+    browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    const dialogs = [];
+    page.on('dialog', async (dialog) => { dialogs.push(dialog.message()); await dialog.accept(); });
+    let checkCalls = 0;
+    await page.route(/\/api\/hosts\/guide-host\/check$/, async (route) => {
+      checkCalls++;
+      if (checkCalls === 1) return route.fulfill({ status: 428, contentType: 'application/json', body: JSON.stringify({ code: 'NEEDS_UNLOCK', error: '請先解鎖登入金鑰' }) });
+      if (checkCalls === 2) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ code: 'HOST_TRUST_REQUIRED', error: '首次連線需確認主機指紋', fingerprint: 'SHA256:mock-fingerprint' }) });
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, fingerprint: 'SHA256:mock-fingerprint' }) });
+    });
+    await page.goto(server.url);
+    await page.waitForFunction(() => document.querySelector('#hosts-loading').hidden);
+    await page.getByRole('tab', { name: '建立指南' }).click();
+    await page.locator('[name="alias"]').fill('guide-host');
+    await page.locator('[name="hostname"]').fill('intercepted.invalid');
+    await page.locator('[name="username"]').fill('tester');
+    await page.getByRole('button', { name: '下一步' }).click();
+    await page.locator('#guide-step-title').filter({ hasText: '步驟 2' }).waitFor();
+    await page.getByRole('button', { name: '下一步' }).click();
+    await page.locator('#guide-step-title').filter({ hasText: '步驟 3' }).waitFor();
+    await page.getByLabel(/我已在目標 Linux 主機嘗試完成授權/).check();
+    await page.getByRole('button', { name: '下一步' }).click();
+    await page.locator('#guide-step-title').filter({ hasText: '步驟 4' }).waitFor();
+
+    await page.getByRole('button', { name: '檢查連線' }).click();
+    await page.locator('#unlock-dialog[open]').waitFor();
+    await page.locator('#passphrase').fill('unlock passphrase');
+    await page.locator('#unlock-form button[type="submit"]').click();
+    await page.getByRole('button', { name: '前往主機操作' }).waitFor();
+    assert.equal(checkCalls, 3);
+    assert.equal(dialogs.length, 1);
+    assert.match(dialogs[0], /SHA256:mock-fingerprint/);
+    assert.equal(await page.locator('#passphrase').inputValue(), '');
   } finally {
     if (browser) await browser.close();
     await new Promise((resolve) => server.close(resolve));
