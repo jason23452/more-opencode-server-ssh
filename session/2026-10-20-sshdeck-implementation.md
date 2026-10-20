@@ -47,7 +47,7 @@
 
 ## 下一步
 
-1. 清除本輪已整合的 ticket 與 spec 專用 worktrees／branches；保留 `dev` worktree/branch。
+1. 本輪建立的 `spec/sshdeck`、`ticket/sshdeck-01` 至 `ticket/sshdeck-07` worktrees／branches 已在合併至 `dev` 後清除；保留 `dev` 與 `master`。
 2. 若未來需宣稱 macOS 已驗證，另在 macOS 實機／CI 執行完整驗收並更新證據。
 
 ## 相關參照
@@ -56,5 +56,5 @@
 - 規格及驗收情境：`.scratch/sshdeck/spec.md`。
 - 跨平台證據矩陣：`.scratch/sshdeck/issues/07-cross-platform-acceptance.md`。
 - 各功能驗收：`.scratch/sshdeck/issues/01-host-management.md` 至 `07-cross-platform-acceptance.md`。
-- 整合前 spec 分支 HEAD：`3b940d8`；合併至 dev 的提交：`f97dad9`；dev 後續 HEAD：`a58b3f5`。
+- 整合前 spec 分支 HEAD：`3b940d8`；合併至 dev 的提交：`f97dad9`。原有 `.opencode/` 與 `AGENTS.md` 保留，沒有為清理而刪改使用者檔案。
 - macOS 決策由使用者明確確認；沒有可見的 subagent session transcript 需補充，本紀錄依主 session 與已提供的驗收回報整理。
