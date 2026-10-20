@@ -375,6 +375,7 @@ const page = `<!doctype html>
   <p id="hosts-loading" role="status">正在載入受管主機…</p>
   <div id="empty-hosts" hidden><p>尚未加入受管主機。</p><button type="button" data-page="guide">開始建立指南</button></div>
   <ul id="hosts" class="host-list" aria-label="受管主機"></ul>
+  <button id="open-legacy-management" type="button">全域登入金鑰管理</button>
   <p id="select-host-hint">請從上方選取操作目標。</p>
   <section id="host-workspace" aria-labelledby="target-heading" hidden>
     <h3 id="target-heading">操作目標：<span id="target-alias"></span></h3>
@@ -389,11 +390,10 @@ const page = `<!doctype html>
            <form id="exec-form"><label>遠端命令 <input id="exec-command" required></label><button>執行</button></form>
            <div id="exec-sessions" aria-live="polite"></div>
          </details>
-         <button id="open-legacy-management" type="button">全域登入金鑰管理</button>
        </div>
      </details>
    </section>
-   <details id="legacy-management"><summary>全域登入金鑰管理</summary>
+   <details id="legacy-management" hidden><summary>全域登入金鑰管理</summary>
      <button id="lock-keys" type="button">鎖定已解鎖金鑰</button>
      <h3>本機管理金鑰</h3><ul id="managed-keys"></ul>
    </details>
@@ -420,7 +420,7 @@ const page = `<!doctype html>
     <button id="cancel-key-create" type="button">取消</button>
   </form>
 </dialog>
-<section aria-label="登入金鑰資訊">
+<section id="key-info" aria-label="登入金鑰資訊" hidden>
   <label id="guide-username-label" hidden>指南中的遠端使用者名稱 <input id="guide-username" autocomplete="off"></label>
   <pre id="key-output"></pre>
   <button id="copy-public-key" type="button" disabled>複製公鑰</button>
@@ -445,6 +445,7 @@ const confirmKeyPassphrase = document.querySelector('#confirm-key-passphrase');
 const keyOutput = document.querySelector('#key-output');
 const copyPublicKey = document.querySelector('#copy-public-key');
 const copyGuide = document.querySelector('#copy-guide');
+const keyInfo = document.querySelector('#key-info');
 const guideUsernameLabel = document.querySelector('#guide-username-label');
 const guideUsername = document.querySelector('#guide-username');
 let currentPublicKey = '';
@@ -522,6 +523,7 @@ function askNewKeyPassphrase() {
 function showKeyInfo(publicKey, guide = '') {
   currentPublicKey = publicKey || '';
   currentGuide = guide;
+  keyInfo.hidden = !currentPublicKey && !currentGuide;
   const hasGuide = Boolean(guide);
   guideUsernameLabel.hidden = !hasGuide;
   if (hasGuide) {

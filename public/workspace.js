@@ -171,9 +171,15 @@
     query('#navigation-toggle').textContent = open ? '收合導覽' : '開啟導覽';
   };
   query('#open-legacy-management').onclick = () => {
-    query('#legacy-management').open = true;
-    query('#legacy-management summary').focus();
+    const legacy = query('#legacy-management');
+    legacy.hidden = false;
+    legacy.open = true;
+    legacy.querySelector('summary').focus();
   };
+  query('#legacy-management').addEventListener('toggle', () => {
+    const legacy = query('#legacy-management');
+    if (!legacy.open) { legacy.hidden = true; query('#open-legacy-management').focus(); }
+  });
   async function runCheck(host, automatic = true) {
     if (checksInFlight.has(host.alias)) return checksInFlight.get(host.alias);
     const snapshot = hostSnapshot(host);

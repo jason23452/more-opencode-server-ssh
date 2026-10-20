@@ -33,5 +33,6 @@ Spec: [SSH 主機操作介面與逐步建立指南](../spec.md)
 - 設定 `SSHDECK_PLAYWRIGHT_MODULE=C:/Users/andt3/AppData/Local/Temp/opencode/sshdeck-ui-browser-tools/node_modules/playwright` 後執行 `npm test`：44 項中 27 通過、17 略過、0 失敗。略過項目需要外部隔離 SSH／Docker 測試主機；依使用者指示未執行任何人工遠端連線測試。
 - 瀏覽器測試使用受控 Chromium API／WebSocket 替身，涵蓋指南建立與接續、解鎖／指紋互動、輪詢、終端切換、單次命令、管理入口、狹窄版面與鍵盤操作；真正 SSH／Docker daemon 成功與失敗未宣稱已驗證。
 - 以 Chromium desktop 截圖檢視主機列表、展開後的選定主機進階管理及建立指南第一步，確認無主機資訊區多餘的停用複製按鈕、進階入口與全域金鑰入口不重複，步驟欄位分組清楚；截圖存於 `C:/Users/andt3/AppData/Local/Temp/opencode/sshdeck-{hosts,advanced,guide}-review2.png`。此為介面人工視覺檢查，不代表新手使用者研究。
+- 視覺檢查發現無金鑰時頁面仍顯示停用的金鑰複製按鈕，以及全域金鑰管理摘要重複；已隱藏空的登入金鑰資訊區、將唯一全域管理入口移至主機列表下並以按鈕展開／收合，變更後重新執行工作區 Chromium 測試。
 - `node --check` 涵蓋 `bin/sshdeck.js`、`public/workspace.js`、`public/terminal.js`、`public/connection-guide.js`、`lib/ssh.js`；`git diff --check` 通過。
 - Standards／Spec 雙軸風險導向審查待執行；完成後補上基準／審查 SHA、覆蓋結果、發現及修正證據。
