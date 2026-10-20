@@ -92,17 +92,16 @@
 - 未有真實隔離 SSH/Docker 主機時，遠端 PTY、登入授權、指紋實際輪替及 Docker daemon 成功／拒絕流程未做端對端測試；UI 狀態流程已由替身測試。
 - `connection-guide.js` 將指南狀態、持久化、API 與 DOM 放在同一模組；Standards reviewer 記為非阻擋 Duplicated Code／Divergent Change 整理機會，無必要在本輪重構。
 - 主機間直接通信仍是未來方向，本 spec 不包含。
-- 下一步依 `AGENTS.md` 核對本輪 worktrees/branches 乾淨狀態並清理；`dev` 已合併，不需再次詢問合併授權。
+- 本輪 ticket／integration worktrees 與 branches 已在合併 `dev` 後核對乾淨並清理；只保留使用者原有的 `dev`／`master` worktrees 與 branches。
 
 ## 下一步（依優先順序）
 
-1. 核對本輪建立的 01–07 ticket worktrees、整合 worktree 均乾淨且已整合至 `dev`，然後清理這些 worktrees 與已合併 ticket/spec branches。
-2. 清理後確認只剩使用者原有 worktrees/branches，`dev` 及 issue/session 文件無未提交變更。
-3. 不 push；使用者會自行手動測試目前 `dev` 版本。
+1. 使用者自行手動測試目前 `dev` 版本；本輪沒有 push。
+2. 若後續發現 UI 問題，另開 ticket 並以目前 dev 為基準處理。
 
 ## 相關參照
 
-- 整合分支：`spec/sshdeck-guided-ui`；最終 HEAD `b0f7ef5822d7724621d1cb2f33ed1c26eca8e438`，最後雙軸程式審查 SHA `11957c2cff7613426dc58fcf59dbc9758d7fb9ad`，基準 `44705d7b6c2bc3ccde3bf20bbf6d0c45ef2a5bf1`；合併到 `dev` 為 `eef582873f82c15801d2d2d9f31391608c3b6ea7`。
+- 已刪除的整合分支 `spec/sshdeck-guided-ui` 最終 HEAD `b0f7ef5822d7724621d1cb2f33ed1c26eca8e438`；最後雙軸程式審查 SHA `11957c2cff7613426dc58fcf59dbc9758d7fb9ad`，基準 `44705d7b6c2bc3ccde3bf20bbf6d0c45ef2a5bf1`；合併到 `dev` 為 `eef582873f82c15801d2d2d9f31391608c3b6ea7`。Ticket／integration worktrees 和 branches 均已清理。
 - Spec：`.scratch/sshdeck-guided-ui/spec.md`。
 - Tickets：`.scratch/sshdeck-guided-ui/issues/01-navigation-and-host-workspace.md` 至 `07-integrated-validation.md`。
 - UI 模組契約：`docs/ui-modules.md`。
