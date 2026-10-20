@@ -1,0 +1,21 @@
+{
+  "name": "sshdeck",
+  "version": "0.1.0",
+  "private": true,
+  "description": "跨平台本機 SSH 主機管理工具",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test --test-concurrency=1"
+  },
+  "bin": {
+    "sshdeck": "bin/sshdeck.js"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "ssh2": "^1.17.0",
+    "ws": "^8.22.0"
+  }
+}
