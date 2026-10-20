@@ -27,7 +27,7 @@
 - **05**：以指南自己的狀態介面保存進度；共用分頁不儲存任何敏感資料，也不會重建指南表單。
 - **06**：選定主機管理掛載於 `#advanced-host-actions`。`#legacy-management` 暫時保留完整主機、金鑰及單次命令操作，正式搬移後可移除重複入口。
 
-01 尚未實作三色輪詢、單一終端生命週期、四步指南與進度持久化；這些由對應票單完成。舊終端能力暫時仍可建立多個工作階段，03 須統一入口並處理移除／修改主機時的中斷。
+01／02 已完成導覽、工作區與 SSH 狀態輪詢。03 將既有多工作階段入口收斂為目前選取受管主機的單一終端連線；04／05／06 仍負責建立指南、進度持久化與進階管理。
 
 ## 瀏覽器驗證
 
@@ -39,3 +39,9 @@
 背景輪詢透過 `services.checkSSH(host, { automatic: true })` 呼叫 SSH-only 檢查，不執行 Docker。它每 30 秒檢查可見頁面中具備連線資料的主機；頁面隱藏時暫停，重新顯示時立即檢查。使用者主動檢查仍使用 `services.checkHost(host)`，以保留解鎖及主機指紋確認流程。背景檢查遇到 `needs-unlock`、`untrusted` 或 `changed` 時不開啟互動視窗、不自動信任，也不重複輪詢該挑戰狀態。
 
 同一主機的檢查共用 in-flight promise。只有新增或連線設定變更才觸發額外檢查；一般列表更新不會重新連線。`renderHostStatus` 更新 `.host-status` 的文字及 `data-state`，狀態包含 `success`、`failure`、`pending` 與未知／挑戰狀態。SSH-only API 為 `POST /api/hosts/:alias/ssh-check`；定期輪詢不執行 Docker 檢查。
+
+## 03：終端生命週期接點
+
+`public/terminal.js` 在既有內嵌程式提供 adapters 後載入，取代 `services.startShell`，並綁定 `#connect-host`。原始 `startShell(host, { onState })` 回傳 `{ ready, fit, close }`：`ready` 僅於收到伺服器 `started` 訊息時完成，連線前錯誤會 reject；`fit` 用於切回主機分頁後調整終端尺寸；`close` 關閉目前 WebSocket、釋放 xterm 資源並移除終端 DOM。`onState` 回報 `connecting`、`connected`、`failed`、`closed`。
+
+終端模組以 `services.beforeSelectHost(next, previous)` 在選取前確認並中斷原連線，並訂閱 `selectionchange`、`hostschange`、`pagechange`。`ui.on()` listener 收到的是 `CustomEvent`；資料位於 `event.detail`。切換分頁保留連線；主機被刪除或連線設定變更則中斷並釋放終端。

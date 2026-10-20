@@ -580,7 +580,7 @@ async function checkHost(host, options = {}) {
   return value;
 }
 
-function startShell(host) {
+function startShell(host, { onState = () => {} } = {}) {
   const section = document.createElement('section');
   section.dataset.alias = host.alias;
   const heading = document.createElement('h3');
@@ -601,10 +601,29 @@ function startShell(host) {
   terminal.focus();
   let socket;
   let finished = false;
+  let readySettled = false;
+  let terminalDisposed = false;
+  let resolveReady;
+  let rejectReady;
+  const ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
+  const handle = {
+    ready,
+    fit: () => resize(),
+    close: () => {
+      if (finished) return;
+      finished = true;
+      resizeObserver.disconnect();
+      closeSocket();
+      if (!terminalDisposed) { terminalDisposed = true; terminal.dispose(); }
+      section.remove();
+      if (!readySettled) { readySettled = true; rejectReady(new Error('終端連線已中斷。')); }
+    },
+  };
   const closeSocket = () => {
     if (socket && socket.readyState < WebSocket.CLOSING) socket.close(1000, 'terminal closed');
   };
-  close.onclick = closeSocket;
+  close.onclick = handle.close;
+  onState('connecting');
 
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   socket = new WebSocket(protocol + '//' + location.host + '/api/shell?alias=' + encodeURIComponent(host.alias));
@@ -626,6 +645,7 @@ function startShell(host) {
 
   socket.onopen = resize;
   socket.onmessage = async (event) => {
+    if (finished) return;
     if (typeof event.data !== 'string') {
       terminal.write(new Uint8Array(event.data));
       return;
@@ -653,23 +673,42 @@ function startShell(host) {
       terminal.write('已連線。輸入 exit 或關閉此終端機結束工作階段。\\r\\n');
       resize();
       terminal.focus();
+      if (!readySettled) { readySettled = true; resolveReady(handle); }
+      onState('connected');
     } else if (message.type === 'error') {
       terminal.write('\\r\\nSSH 終端機錯誤：' + message.error + '\\r\\n');
+      if (!readySettled) { readySettled = true; rejectReady(new Error(message.error || 'SSH 終端機連線失敗')); }
+      onState('failed', message.error || 'SSH 終端機連線失敗');
+      handle.close();
     } else if (message.type === 'closed') {
       const detail = message.error ? '：' + message.error : message.code === undefined ? '' : '（結束狀態 ' + message.code + '）';
       terminal.write('\\r\\n終端機已關閉' + detail + '\\r\\n');
       finished = true;
       close.disabled = true;
       resizeObserver.disconnect();
+      section.remove();
+      if (!readySettled) { readySettled = true; rejectReady(new Error(message.error || '終端機在連線完成前已關閉')); }
+      onState('closed', message.error || '終端機已關閉');
     }
   };
-  socket.onerror = () => { terminal.write('\\r\\nWebSocket 終端機連線失敗。\\r\\n'); };
+  socket.onerror = () => {
+    if (finished) return;
+    terminal.write('\\r\\nWebSocket 終端機連線失敗。\\r\\n');
+    if (!readySettled) { readySettled = true; rejectReady(new Error('WebSocket 終端機連線失敗')); }
+    onState('failed', 'WebSocket 終端機連線失敗');
+    handle.close();
+  };
   socket.onclose = (event) => {
     if (!finished && event.code !== 1000) terminal.write('\\r\\n終端機連線中斷（' + event.code + '）。\\r\\n');
     finished = true;
     close.disabled = true;
     resizeObserver.disconnect();
+    section.remove();
+    if (!terminalDisposed) { terminalDisposed = true; terminal.dispose(); }
+    if (!readySettled) { readySettled = true; rejectReady(new Error('終端機連線在完成前中斷')); }
+    onState('closed', event.code === 1000 ? '終端機已中斷。' : '終端機連線已中斷。');
   };
+  return handle;
 }
 
 async function refresh() {
@@ -926,6 +965,7 @@ document.querySelector('#lock-keys').onclick = async () => {
 window.sshdeck.configure({ request, send, unlock, checkHost, checkSSH: (host, options = {}) => checkHost(host, { ...options, automatic: true }), startShell, refresh, showKeyInfo, askNewKeyPassphrase });
 refresh().catch((reason) => { error.textContent = reason.message; document.querySelector('#hosts-loading').textContent = '無法載入受管主機，請重新整理重試。'; });
 </script>
+<script src="/assets/terminal.js"></script>
 </body>
 </html>`;
 
@@ -945,6 +985,7 @@ function createServer({ dataFile, port }) {
       '/assets/addon-fit.js': [path.join(__dirname, '..', 'node_modules', '@xterm', 'addon-fit', 'lib', 'addon-fit.js'), 'text/javascript'],
       '/assets/workspace.js': [path.join(__dirname, '..', 'public', 'workspace.js'), 'text/javascript'],
       '/assets/workspace.css': [path.join(__dirname, '..', 'public', 'workspace.css'), 'text/css'],
+      '/assets/terminal.js': [path.join(__dirname, '..', 'public', 'terminal.js'), 'text/javascript'],
     };
     if (req.method === 'GET' && assets[req.url]) {
       const [file, contentType] = assets[req.url];

@@ -174,12 +174,6 @@
     query('#legacy-management').open = true;
     query('#legacy-management summary').focus();
   };
-  query('#connect-host').onclick = async () => {
-    const host = selectedHost();
-    if (!host) return;
-    try { await services.startShell(host); }
-    catch (reason) { reportError(reason); }
-  };
   async function runCheck(host, automatic = true) {
     if (checksInFlight.has(host.alias)) return checksInFlight.get(host.alias);
     const snapshot = hostSnapshot(host);
