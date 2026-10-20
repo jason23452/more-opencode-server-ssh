@@ -102,7 +102,7 @@
 
 ## 相關參照
 
-- 整合分支：`spec/sshdeck-guided-ui`；目前 HEAD `11957c2cff7613426dc58fcf59dbc9758d7fb9ad`，基準 `44705d7b6c2bc3ccde3bf20bbf6d0c45ef2a5bf1`。
+- 整合分支：`spec/sshdeck-guided-ui`；交接時 HEAD `0f05f48`（Session note commit），實作／雙軸審查 SHA `11957c2cff7613426dc58fcf59dbc9758d7fb9ad`，基準 `44705d7b6c2bc3ccde3bf20bbf6d0c45ef2a5bf1`。
 - Spec：`.scratch/sshdeck-guided-ui/spec.md`。
 - Tickets：`.scratch/sshdeck-guided-ui/issues/01-navigation-and-host-workspace.md` 至 `07-integrated-validation.md`。
 - UI 模組契約：`docs/ui-modules.md`。
