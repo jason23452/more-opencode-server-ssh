@@ -1,6 +1,6 @@
 # 02 — 實作 SSH 三色狀態與定期檢查
 
-Status: ready-for-agent
+Status: claimed
 Type: task
 Blocked by: 01
 Spec: [SSH 主機操作介面與逐步建立指南](../spec.md)
