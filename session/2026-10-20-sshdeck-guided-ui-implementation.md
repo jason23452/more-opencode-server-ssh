@@ -2,7 +2,7 @@
 
 ## 摘要與目標
 
-使用者要求改善 sshdeck UI/UX：左側導覽包含「主機操作」「建立指南」；讓 SSH 新手能逐步設定主機、登入金鑰及遠端授權，並在主機操作頁使用互動終端機。本輪涵蓋 spec 的全部 7 張 tickets，結果整合在 `spec/sshdeck-guided-ui`，尚未合併至 `dev`。
+使用者要求改善 sshdeck UI/UX：左側導覽包含「主機操作」「建立指南」；讓 SSH 新手能逐步設定主機、登入金鑰及遠端授權，並在主機操作頁使用互動終端機。本輪涵蓋 spec 的全部 7 張 tickets，成果已整合並依使用者明確同意合併至 `dev`；本機 merge commit `eef582873f82c15801d2d2d9f31391608c3b6ea7`，未 push。
 
 實作期限依使用者指定 4 小時：共同開始時間 `2026-10-20 11:46:17 +08:00`，截止 `2026-10-20 15:46:17 +08:00`。使用者後續特別澄清：他會自行手動測試 `dev` 功能，不需要 Agent 手動連線遠端主機；本輪以自動化測試及受控 API／WebSocket 替身驗證 UI，不做人工遠端 SSH/Docker 連線。
 
@@ -92,17 +92,17 @@
 - 未有真實隔離 SSH/Docker 主機時，遠端 PTY、登入授權、指紋實際輪替及 Docker daemon 成功／拒絕流程未做端對端測試；UI 狀態流程已由替身測試。
 - `connection-guide.js` 將指南狀態、持久化、API 與 DOM 放在同一模組；Standards reviewer 記為非阻擋 Duplicated Code／Divergent Change 整理機會，無必要在本輪重構。
 - 主機間直接通信仍是未來方向，本 spec 不包含。
-- 下一步需使用 OpenCode `question` 工具詢問使用者是否同意將 `spec/sshdeck-guided-ui` 合併到 `dev`；未取得明確同意前不得合併／清理 worktrees。
+- 下一步依 `AGENTS.md` 核對本輪 worktrees/branches 乾淨狀態並清理；`dev` 已合併，不需再次詢問合併授權。
 
 ## 下一步（依優先順序）
 
-1. 等待使用者決定是否合併整合分支到 `dev`。
-2. 若同意，才依 `AGENTS.md` 核對 worktree/branch 狀態並合併；確認 spec/ticket checklist 與此 session note 已更新後，僅清理本次已整合乾淨的 ticket/integration worktrees/branches。
-3. 若不同意或延後，保留整合分支與 worktree供使用者手動測試；不清理唯一成果。
+1. 核對本輪建立的 01–07 ticket worktrees、整合 worktree 均乾淨且已整合至 `dev`，然後清理這些 worktrees 與已合併 ticket/spec branches。
+2. 清理後確認只剩使用者原有 worktrees/branches，`dev` 及 issue/session 文件無未提交變更。
+3. 不 push；使用者會自行手動測試目前 `dev` 版本。
 
 ## 相關參照
 
-- 整合分支：`spec/sshdeck-guided-ui`；交接時 HEAD `0f05f48`（Session note commit），實作／雙軸審查 SHA `11957c2cff7613426dc58fcf59dbc9758d7fb9ad`，基準 `44705d7b6c2bc3ccde3bf20bbf6d0c45ef2a5bf1`。
+- 整合分支：`spec/sshdeck-guided-ui`；最終 HEAD `b0f7ef5822d7724621d1cb2f33ed1c26eca8e438`，最後雙軸程式審查 SHA `11957c2cff7613426dc58fcf59dbc9758d7fb9ad`，基準 `44705d7b6c2bc3ccde3bf20bbf6d0c45ef2a5bf1`；合併到 `dev` 為 `eef582873f82c15801d2d2d9f31391608c3b6ea7`。
 - Spec：`.scratch/sshdeck-guided-ui/spec.md`。
 - Tickets：`.scratch/sshdeck-guided-ui/issues/01-navigation-and-host-workspace.md` 至 `07-integrated-validation.md`。
 - UI 模組契約：`docs/ui-modules.md`。

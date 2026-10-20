@@ -29,7 +29,7 @@ Spec: [SSH 主機操作介面與逐步建立指南](../spec.md)
 
 ### 2026-10-20 整合驗證
 
-- 固定範圍基準：整合分支建立時的 `dev` SHA `44705d7b6c2bc3ccde3bf20bbf6d0c45ef2a5bf1`；待審查範圍為整合分支上 01–06 全部票單及必要修正。各 ticket worktree/commit 均已合併至 `spec/sshdeck-guided-ui`。
+- 固定範圍基準：整合分支建立時的 `dev` SHA `44705d7b6c2bc3ccde3bf20bbf6d0c45ef2a5bf1`；待審查範圍為整合分支上 01–07 全部票單及必要修正。各 ticket worktree/commit 均已合併至 `spec/sshdeck-guided-ui`。
 - 設定 `SSHDECK_PLAYWRIGHT_MODULE=C:/Users/andt3/AppData/Local/Temp/opencode/sshdeck-ui-browser-tools/node_modules/playwright` 後執行 `npm test`：44 項中 27 通過、17 略過、0 失敗。略過項目需要外部隔離 SSH／Docker 測試主機；依使用者指示未執行任何人工遠端連線測試。
 - 瀏覽器測試使用受控 Chromium API／WebSocket 替身，涵蓋指南建立與接續、解鎖／指紋互動、輪詢、終端切換、單次命令、管理入口、狹窄版面與鍵盤操作；真正 SSH／Docker daemon 成功與失敗未宣稱已驗證。
 - 以 Chromium desktop 截圖檢視主機列表、展開後的選定主機進階管理及建立指南第一步，確認無主機資訊區多餘的停用複製按鈕、進階入口與全域金鑰入口不重複，步驟欄位分組清楚；截圖存於 `C:/Users/andt3/AppData/Local/Temp/opencode/sshdeck-{hosts,advanced,guide}-review2.png`。此為介面人工視覺檢查，不代表新手使用者研究。
