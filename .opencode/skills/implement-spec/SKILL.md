@@ -1,43 +1,60 @@
 ---
 name: implement-spec
-description: "Implement the result of /to-spec and /to-tickets in code."
+description: 針對指定 spec／tickets 規劃並分批實作，交付可運行成果與 repo 內 PR 報告，保留整合 worktree 供使用者另行選擇合併。
 disable-model-invocation: true
 ---
 
-You have been provided a spec. This spec should have tickets associated with it, describing how to implement the spec.
+# Implement-spec 分批交付
 
-The issue tracker should have been provided to you. If not, tell the user to run `/setup-matt-pocock-skills`.
+本 skill 以本批可運行成果為交付單位；`implement-spec-planning` 負責依時間選取 TODO 與排程。指定時長預設為限時批次，預留驗證、PR 報告、紀錄及已整合 ticket 資源清理時間，到期收尾並保留剩餘 TODO。開發完成後保留來源整合分支與 worktree，不詢問或執行合併 `dev`；由使用者另行呼叫 `merge-worktrees` 選擇合併。授權與完成條件以根目錄 `AGENTS.md` 為準。
 
-The goal is the entire spec implemented on a single **integration branch**, with every ticket resolved the way the issue tracker closes work.
+## 1. 啟動與首批派工
 
-The tickets are not a list of steps. They are a **task graph** with blocking relationships between them. This means there is always a **frontier** of tickets which are ready to be grabbed.
+1. 讀取 tracker 規範、指定 spec／tickets 與最新批次交付紀錄；只提供 ticket 時先定位所屬 spec，探索程式碼前讀取 domain 規範。直接呼叫本 skill 即包含規劃入口：沒有有效計畫、計畫失效或使用者要求重新規劃時，執行 `implement-spec-planning` 的四職責分析與排程。有指定時間就依預算選取可運行切片；未指定時間就依指定範圍估算所需時間、依賴與分批方案，不能只產出「缺少時間」紀錄。提交規劃後停止。使用者對指定 spec 呼叫本 skill，且只有一份有效的待執行批次計畫時，視為啟動該批；確有多份可執行計畫且無法判定時才透過 `question` 確認。已合併歷史批次不算待選計畫，純估時提案須先依 planning 的時間確認門檻處理。
+2. 獲准開始後，記錄批次識別、計畫版本／基準、所選 TODO、時間模式與計時口徑，依 `AGENTS.md` 核算共同時間。指定時長預設限時批次，驗證、PR 報告與交接收尾均須預留時間；只有使用者明確要求做完本批全部選項才採完成導向。固定期限與包含規劃的總時長不重設。開工前核對基準、資源與剩餘時間；失效計畫返回 planning 更新、提交後停止，輸入不足或不可行紀錄不能直接開工。
+3. 依 `AGENTS.md` 建立整合分支與獨立 worktree，記錄基準 SHA。優先派發關鍵路徑、高風險前置及可解鎖後續工作的就緒 tickets；獨立工作使用背景 subagents 並行，並行上限依工具、共享檔案及環境資源設定。
+4. 每張 ticket 使用專屬分支與 worktree。派工提供 spec／ticket 路徑、修改範圍、前置整合 SHA、共同時間資訊、port、局部預估、驗收及回報條件，並附上 planning 四職責整合的交接：可重用模組與符號、必要修改位置、共享契約與檔案所有權、測試／環境前置及未決事項。成果以路徑與 SHA 重用，不重做已有有效分析；執行中只補派受影響的規劃職責。
+5. 完整計畫已獲人類確認，且首批交接齊備、無阻擋契約後立即派工；後續不等無關的增量分析。規劃與實作共用可用 Agent 資源，優先保障關鍵路徑實作，不為細碎工作增加交接或等待。
 
-Communication to and from subagents should be sparse. Communicate primarily through **context pointers**: to the spec, tickets, research notes, and previous commits. Don't duplicate information already available via pointers.
+### 同一 spec 的下一批續作
 
-**Implementer subagents** should be run in the background where possible for maximum concurrency.
+- 先盤點各來源 worktree 的 `pr/` 待合併報告，避免將已交付但未進入 `dev` 的功能重新排入實作；必要依賴尚未合併時記錄阻礙，交由使用者另行選擇合併。新批次分支與 worktree 名稱包含批次識別。
+- 核對最新 `dev`、合併 SHA、checklist 與交付紀錄。上一批已合併且 worktrees 已清理，表示該批已結束，不表示 spec 已完成，也不是無法續作的理由；從最新 `dev` 建立後續批次，不復原已刪除的舊 worktree。
+- 將剩餘功能、待補驗收與新階段 TODO 放入同一候選清單，依優先級、依賴、可運行切片及本次時間選取。待補測試與深化功能可以同批，不要求使用者在「補完舊批」與「實作完整新階段」間二選一。
+- 明示「等待使用者安排測試」的項目維持暫緩，直到使用者要求補測或給予涵蓋該項的授權；只在它實際阻擋候選切片時列為依賴阻礙。未授權的新階段可參與規劃，須在後續批次獲准後才實作。
+- 每批只使用本次指定或該待執行計畫仍有效的時間；不默認重用上一批已耗盡的兩小時。沒有有效計畫時依 planning 規劃剩餘 TODO；沒有新預算時主動估算候選範圍與所需時間，提交規劃後停止。
 
-## Steps
+## 2. 持續執行循環
 
-0. 依 `AGENTS.md` 確認使用者已授權啟動本輪工作，立即記錄共同開始／截止時間；已有計時則沿用。載入 `implement-spec-planning` skill，將下列需求閱讀與探索納入總時限。使用者已指定時長時直接採用，僅缺少時透過 `question` 請其自行輸入。
+持續執行「派工 → 接收證據 → 合併 → 解鎖後續 → 整合驗證」，直到本批成果可交付或進入預留收尾時間。各步依事件推進，不等待整張 ticket 完成；臨近批次期限時只完成當前可交付切片的必要驗證與收尾，不再擴增工作。
 
-1. Read the spec and tickets to understand the task graph.
+### 實作與回報
 
-2. (optional) Use an **exploration subagent** to conduct any exploration required by the tickets - relevant codebase files or external documentation. Ensure the exploration subagent can save files - it should save its markdown notes in a directory outside the repo, accessible by all future subagents. This lets **implementer subagents** focus on implementation rather than exploration.
+- Subagent 開始前確認 worktree 包含指定前置 SHA。基底不符時回報主 Agent 核對，保留既有工作後再調整，不自行 reset 丟棄成果。
+- 先核對規劃交接的版本與適用性，只補查缺漏或變動範圍；發現共享契約不成立時回報主 Agent 協調，局部實作細節自行決定。首個可驗證成果回報實際探索、環境等待及返工原因，供 planning 校正後續分工。
+- 使用 `tdd` 實作 ticket，維護驗收、測試與審查證據。可重用工具及執行失敗依 `agent-execution-lessons` 處理。
+- 交付包含提交 SHA、驗收對應位置、實際測試指令與結果、剩餘風險及實際耗時；只勾選有證據的 checklist，依專案規則提交票單。
+- 發現依賴缺漏、環境阻礙、驗證失敗或局部預估明顯不足時立即回報：原因、已嘗試方式、證據、剩餘工作與可交接成果，不等配額耗盡才通知。局部預估是調度訊號，不是完成或停止條件。
+- 沒有可用 subagent 時，依 `AGENTS.md` 取得使用者同意後才由主 Agent 接手。
 
-3. 依 `implement-spec-planning` 完成全部 tickets 的排程、分工、review 範圍與可行性檢查，再依 `AGENTS.md` 建立整合分支與獨立 worktree。若 tracker 以 PR 結案或使用者要求 PR，在步驟 5 首次合併後建立 draft PR。
+### 合併與解鎖
 
-4. Use **implementer subagents** to implement each ticket, each in its own worktree on its own branch. Each implementer subagent:
-   - 接收共同開始／截止時間、局部配額、驗收與 review 範圍；依 `implement-spec-planning` 維護版本、測試及審查證據。依工具實際能力安排並行；無可用 Subagent 時由主 Agent 在各 ticket worktree 執行。
-   - confirms its worktree is based on the integration branch before starting, and resets onto it if not;
-   - calls the Skill tool with `tdd` to build the ticket;
-   - merges the integration branch tip into its own branch before reporting done
+- 主 Agent 核對交付證據後，串行將 ticket 合併至整合分支；其他互不衝突的實作持續進行。若 tracker 需要 PR 或使用者要求，首次合併後建立 draft PR。
+- Ticket 不必例行合入無關的最新整合分支；只有前置依賴變更或實際整合衝突時才同步，由負責 subagent 修正並重驗受影響範圍。主 Agent 保留基準與合併 SHA，核對原證據是否仍適用。
+- 前置成果合併後立即派發已解鎖工作，不等待其他平行票。共享檔案或資源有衝突時先安排修改所有權與串行順序。
 
-5. Ticket 完成後由 merger subagent 將成果合併至整合分支；無可用 Subagent 時由主 Agent 執行。合併後核對審查證據是否仍適用，記錄尚待整合驗證的範圍。
+### 驗證、修正與停滯處理
 
-6. 在 ticket 完成、合併或阻礙事件後，依 `implement-spec-planning` 更新實際剩餘時間及關鍵路徑，再啟動前置成果已整合的 tickets。
+- 第一條端到端流程、跨 ticket 介面或高風險依賴整合後，立即執行必要 smoke test 與 `implement-spec-planning` 指定的風險審查；最終只補尚未覆蓋的必要範圍。
+- 失敗先定位根因，再派回負責 subagent 或另派修正 subagent；修正、重驗、更新證據後才關閉問題。主 Agent 不以自己接手 ticket 實作代替派工。
+- 相同失敗且無新證據時，改變假設、縮小重現範圍或交接；重新派工前確認原 Agent 已停止修改該範圍。無就緒工作時，辨識正在執行的前置或真正阻礙，避免空轉與重複查詢；背景工作依工具通知接收結果。
+- 影響交付的延誤、衝突或資源變動，交由 planning 增量重排。限時批次可將尚未完成的完整切片及其驗收移至下一批，保留原需求；不能拆掉已交付切片的必要依賴或將未跑測試視為通過。到期停止新增實作，回報已交付與剩餘工作；完成導向與硬截止依 `AGENTS.md` 處理。
 
-7. 全部 tickets 整合後，呼叫 `code-review` 的 `implement-spec` 模式，提供固定基準 SHA、待審查 SHA、需求與證據、共同截止時間及局部 review 配額。依 `implement-spec-planning` 修正必修問題並驗證，非阻擋建議記錄即可；修正後只複查增量及受影響範圍，達到完成條件即停止。
+## 3. 批次交付與 PR 報告
 
-8. If a draft PR exists, mark it ready for review. Otherwise, resolve each ticket the way the issue tracker closes work, and report the integration branch.
-
-9. 依 `AGENTS.md` 完成 checklist、session notes 與交付回報，透過 `question` 取得合併 `dev` 的明確同意；合併並核對成果後才清理本輪已整合的乾淨分支與 worktrees。未獲同意時保留成果。
+1. 盤點本批實際可交付的完整切片與必要依賴，另列未完成實作、待補驗收、暫緩及未選 TODO。依 planning 第 6 節對實際交付範圍執行 Standards／Spec review；提供原計畫及移至下批的差異，不能以範圍調整隱藏已交付功能的缺陷。
+2. 實際啟動並操作交付流程，確認必要測試、整合與必修修正。未通過必要驗收的切片不宣稱可運行；將其隔離並保留，交付其他獨立且已驗證的成果。待補驗收與阻礙寫入 PR 報告，checklist 保持未完成；後續合併選擇交由 `merge-worktrees` 處理。
+3. 在 ticket 索引及 session note 記錄批次識別、計畫與實際交付差異、運行證據、待補項目的處理條件、實際耗時、合併及清理狀態。「批次已結束」「成果已合併」「ticket／spec 驗收完成」分開記錄，下一步明確為從最新 `dev` 規劃剩餘 TODO。
+4. 使用 `pr` skill 在來源整合 worktree 的根目錄 `pr/` 保存本批報告，記錄已驗證成果 SHA、比較基準、交付及 review 證據、未完成項與「待合併」狀態。報告與 session note 依文件提交規則核對並詢問提交意願；未提交時明列阻礙並保留工作目錄。
+5. 停止本批服務，核對成果已保存於整合分支後，可清理已整合且乾淨的 ticket worktrees／分支；將結果補回報告與 session note。來源整合 worktree／分支保留，供使用者另行呼叫 `merge-worktrees`。不詢問是否合併 `dev`，也不自動合併或啟動合併 skill。
+6. 回報本批成果、PR 報告路徑與提交 SHA、保留來源、清理結果及剩餘 TODO，停止。區分開發完成、待合併與驗收狀態；全部條件成立才結案整張 ticket 或整份 spec。尚未進入 `dev` 的依賴列入後續規劃，不假定已合併。

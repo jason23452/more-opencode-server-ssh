@@ -103,3 +103,11 @@ The end-to-end behaviour this ticket makes work, from the user's perspective, no
 </issue-template>
 
 In either form, avoid specific file paths or code snippets: they go stale fast. Exception: if a prototype produced a snippet that encodes a decision more precisely than prose can (state machine, reducer, schema, type shape), inline it and note briefly that it came from a prototype. Trim to the decision-rich parts, not a working demo, just the important bits.
+
+### 6. 核對票單並銜接實作規劃
+
+核對整份 spec 的 tickets 與索引已建立完成，需求與驗收條件均有對應票單，依賴及文件連結一致；有缺漏時先補齊。先依 `AGENTS.md` 處理本批 spec／tickets 的提交詢問；同意則提交，不同意則保留變更，再銜接規劃。已有明確提交授權時直接沿用。
+
+核對完成後立即自動載入 `implement-spec-planning` skill，以多 Agent 分析產出依賴排程、分工及運行驗收計畫。有指定時間時依預算選取高優先級且可真正運行的 TODO 範圍；未指定時間時依該 skill 的「估時規劃」流程估算所需時間與建議批次，標記為 Agent 預測及「估時完成／待確認時間」。輸入不足的判準與後續時間確認門檻依該 skill 處理。規劃文件依根目錄 `AGENTS.md` 自動提交例外核對、commit 後停止，不呼叫 `question` 或接續實作；此授權不包含本流程產生的 spec／tickets，其提交仍依原文件規則處理。
+
+完成條件：整份票單與索引已核對且提交意願已處理；規劃文件已核對並自動 commit，或已明列提交阻礙，隨即停止，不在規劃後返回票單提交詢問。

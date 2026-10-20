@@ -16,12 +16,12 @@ The issue tracker should have been provided to you. If not, tell the user to run
 
 ### `implement-spec` 呼叫模式
 
-僅當呼叫端明確指定 `implement-spec` 模式時，載入 `implement-spec-planning`，以下規則優先於本文件的一般審查程序；獨立呼叫仍使用原有雙軸流程。
+僅當呼叫端明確指定 `implement-spec` 模式時，引用 `implement-spec-planning` 第 6 節的審查方法，不執行其初次規劃流程。以下規則優先於本文件的一般審查程序；獨立呼叫仍使用原有雙軸流程。
 
 - 直接使用呼叫端提供的固定基準 SHA、待審查 SHA、Spec／tickets、適用規範與審查證據；驗證 refs 並以 `git diff <base-sha>...<review-sha>` 固定初次審查範圍。未提供必要資訊時先補齊，不重問已提供的資料。
 - 核對 worktree 狀態；SHA 範圍未涵蓋的未提交修正須先交回主流程納入待審查版本，不能以舊 SHA 的結果宣稱修正已通過。空 diff 需核對是否確無待審查變更，仍須確認需求證據完整。
 - 以變更涉及範圍的規範及相關 `AGENTS.md` 為主；呼叫端資訊不足才補查。沿用共同截止時間及局部配額，依工具能力並行兩軸，無可用 Subagent 時由主 Agent 分別檢查並報告。
-- 將相同的審查版本、證據、未覆蓋風險與時間限制交給兩軸 reviewer。Standards 檢查適用的硬性規範與具體風險；Spec 檢查全部驗收條件及整合正確性。既有證據依版本與影響範圍確認有效後重用。
+- 將相同的審查版本、原計畫與本批實際交付 TODO 的差異、必要依賴、證據、未覆蓋風險及時間限制交給兩軸 reviewer。Standards 檢查適用的硬性規範與具體風險；Spec 檢查實際交付切片的全部必要驗收、真實運行證據、整合正確性及與整體 spec 的相容性。未選或完整移至下批的切片不列為本批需求缺漏，但已交付切片缺少必要依賴／驗收仍須回報；經使用者明確延後的驗收標記待補，不算通過。既有證據依版本與影響範圍確認有效後重用。
 - 一般流程中的 smell baseline 僅作判斷線索；reviewer 依 `implement-spec-planning` 區分必修問題與非阻擋建議。每項發現須有位置、依據、影響與驗證方式；推測性重構不轉為本輪必修工作。
 - 仍分別呈現 Standards／Spec 結果，附上已覆蓋範圍、重用證據、未完成檢查及兩類發現。報告長度以能完整交接必修問題為準。
 - 複查使用 `git diff <last-reviewed-sha> <new-sha>` 及必要的受影響上下文；無新變更或新證據時不重跑完整雙軸 review。配額不足且必要檢查未完成時回報未完成，交回主 Agent 依期限規則處理。

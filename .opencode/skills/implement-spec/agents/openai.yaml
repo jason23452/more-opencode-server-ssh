@@ -1,5 +1,5 @@
 interface:
   display_name: "Implement Spec"
-  short_description: "Implement the result of /to-spec and /to-tickets in code."
+  short_description: "規劃指定 spec／tickets 的範圍與時間，依有效計畫分批實作交付。"
 policy:
   allow_implicit_invocation: false
