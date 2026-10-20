@@ -351,26 +351,60 @@ const page = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width">
 <link rel="stylesheet" href="/assets/xterm.css">
+<link rel="stylesheet" href="/assets/workspace.css">
 <title>sshdeck 主機設定</title>
+<body>
+<a class="skip-link" href="#main">跳到主要內容</a>
+<aside class="sidebar">
+  <p class="brand">sshdeck</p>
+  <button id="navigation-toggle" type="button" aria-expanded="false" aria-controls="navigation">開啟導覽</button>
+  <nav id="navigation" aria-label="主要導覽">
+    <div role="tablist" aria-label="工作區分頁" aria-orientation="vertical">
+      <button id="hosts-tab" type="button" role="tab" aria-controls="hosts-panel" aria-selected="true">主機操作</button>
+      <button id="guide-tab" type="button" role="tab" aria-controls="guide-panel" aria-selected="false" tabindex="-1">建立指南</button>
+    </div>
+  </nav>
+</aside>
+<main id="main" tabindex="-1">
 <h1>主機設定管理</h1>
-<form id="form">
-  <label>別名 <input name="alias" required></label>
-  <label>主機名稱 <input name="hostname" required></label>
-  <label>連接埠 <input name="port" type="number" value="22" min="1" max="65535" required></label>
-  <label>登入帳號 <input name="username" required></label>
-  <label>既有金鑰路徑 <input name="keyPath"></label>
-  <button>新增主機</button>
-</form>
-<button id="lock-keys" type="button">鎖定已解鎖金鑰</button>
 <p id="error" role="alert"></p>
-<ul id="hosts"></ul>
-<h2>本機管理金鑰</h2>
-<ul id="managed-keys"></ul>
-<h2>遠端單次命令</h2>
-<form id="exec-form"><label>主機別名 <select id="exec-host"></select></label><label>遠端命令 <input id="exec-command" required></label><button>執行</button></form>
-<div id="exec-sessions" aria-live="polite"></div>
-<h2>SSH 互動終端機</h2>
-<div id="shell-sessions"></div>
+<section id="hosts-panel" role="tabpanel" aria-labelledby="hosts-tab" tabindex="-1">
+  <h2>主機操作</h2>
+  <p>先選取受管主機，再開始操作。選取不會自動建立 SSH 終端連線。</p>
+  <h3>全部受管主機</h3>
+  <p id="hosts-loading" role="status">正在載入受管主機…</p>
+  <div id="empty-hosts" hidden><p>尚未加入受管主機。</p><button type="button" data-page="guide">開始建立指南</button></div>
+  <ul id="hosts" class="host-list" aria-label="受管主機"></ul>
+  <button id="open-legacy-management" type="button">全域登入金鑰管理</button>
+  <p id="select-host-hint">請從上方選取操作目標。</p>
+  <section id="host-workspace" aria-labelledby="target-heading" hidden>
+    <h3 id="target-heading">操作目標：<span id="target-alias"></span></h3>
+    <dl class="target-info"><dt>主機位址</dt><dd id="target-address"></dd><dt>登入帳號</dt><dd id="target-username"></dd></dl>
+    <div id="host-actions"><button id="connect-host" type="button">連線</button><button id="check-selected-host" type="button">立即檢查</button></div>
+    <div id="terminal-workspace"><h3>SSH 互動終端機</h3><p id="terminal-status" role="status">尚未開啟終端機</p><div id="shell-sessions"></div></div>
+     <details id="advanced-management"><summary>進階管理</summary>
+       <div id="advanced-host-actions">
+         <div id="selected-host-actions"></div>
+         <details id="advanced-exec"><summary>對選定主機執行單次遠端命令</summary>
+           <p id="exec-target-hint" role="status"></p>
+           <form id="exec-form"><label>遠端命令 <input id="exec-command" required></label><button>執行</button></form>
+           <div id="exec-sessions" aria-live="polite"></div>
+         </details>
+       </div>
+     </details>
+   </section>
+   <details id="legacy-management" hidden><summary>全域登入金鑰管理</summary>
+     <button id="lock-keys" type="button">鎖定已解鎖金鑰</button>
+     <h3>本機管理金鑰</h3><ul id="managed-keys"></ul>
+   </details>
+</section>
+<section id="guide-panel" role="tabpanel" aria-labelledby="guide-tab" tabindex="-1" hidden>
+<h2>建立指南</h2>
+<div id="connection-guide">
+<p>依序準備連線資料、登入金鑰及遠端授權，再主動檢查 SSH 連線。</p>
+<div id="connection-guide-app"></div>
+</div>
+</section>
 <dialog id="unlock-dialog">
   <form id="unlock-form">
     <label>登入金鑰密語 <input id="passphrase" type="password" autocomplete="current-password"></label>
@@ -386,16 +420,18 @@ const page = `<!doctype html>
     <button id="cancel-key-create" type="button">取消</button>
   </form>
 </dialog>
-<section aria-label="登入金鑰資訊">
+<section id="key-info" aria-label="登入金鑰資訊" hidden>
   <label id="guide-username-label" hidden>指南中的遠端使用者名稱 <input id="guide-username" autocomplete="off"></label>
   <pre id="key-output"></pre>
   <button id="copy-public-key" type="button" disabled>複製公鑰</button>
+  <button id="copy-guide" type="button" disabled>複製授權指南</button>
 </section>
+</main>
 <script src="/assets/xterm.js"></script>
 <script src="/assets/addon-fit.js"></script>
+<script src="/assets/workspace.js"></script>
 <script>
-const form = document.querySelector('#form');
-const hosts = document.querySelector('#hosts');
+const selectedHostActions = document.querySelector('#selected-host-actions');
 const managedKeys = document.querySelector('#managed-keys');
 const shellSessions = document.querySelector('#shell-sessions');
 const error = document.querySelector('#error');
@@ -408,6 +444,8 @@ const newKeyPassphrase = document.querySelector('#new-key-passphrase');
 const confirmKeyPassphrase = document.querySelector('#confirm-key-passphrase');
 const keyOutput = document.querySelector('#key-output');
 const copyPublicKey = document.querySelector('#copy-public-key');
+const copyGuide = document.querySelector('#copy-guide');
+const keyInfo = document.querySelector('#key-info');
 const guideUsernameLabel = document.querySelector('#guide-username-label');
 const guideUsername = document.querySelector('#guide-username');
 let currentPublicKey = '';
@@ -485,6 +523,7 @@ function askNewKeyPassphrase() {
 function showKeyInfo(publicKey, guide = '') {
   currentPublicKey = publicKey || '';
   currentGuide = guide;
+  keyInfo.hidden = !currentPublicKey && !currentGuide;
   const hasGuide = Boolean(guide);
   guideUsernameLabel.hidden = !hasGuide;
   if (hasGuide) {
@@ -493,6 +532,7 @@ function showKeyInfo(publicKey, guide = '') {
   }
   renderKeyInfo();
   copyPublicKey.disabled = !currentPublicKey;
+  copyGuide.disabled = !currentGuide;
 }
 
 function renderKeyInfo() {
@@ -509,6 +549,11 @@ copyPublicKey.onclick = async () => {
   catch (reason) { error.textContent = '無法複製公鑰，請手動選取複製'; }
 };
 
+copyGuide.onclick = async () => {
+  try { await navigator.clipboard.writeText(currentGuide); error.textContent = '已複製授權指南'; }
+  catch (reason) { error.textContent = '無法複製指南，請手動選取複製'; }
+};
+
 async function unlock(host) {
   const passphrase = await askPassphrase();
   if (passphrase === null) return false;
@@ -516,26 +561,33 @@ async function unlock(host) {
   return true;
 }
 
-async function checkHost(host, expectedFingerprint) {
-  const route = '/api/hosts/' + encodeURIComponent(host.alias) + '/check';
+async function checkHost(host, options = {}) {
+  const automatic = options && options.automatic === true;
+  const expectedFingerprint = options && options.expectedFingerprint;
+  const route = '/api/hosts/' + encodeURIComponent(host.alias) + (automatic ? '/ssh-check' : '/check');
   const body = expectedFingerprint ? { expectedFingerprint } : {};
   let { response, value } = await request(route, 'POST', body);
   if (response.status === 428) {
+    if (automatic) return { state: 'needs-unlock', error: value.error };
     if (!await unlock(host)) return;
     ({ response, value } = await request(route, 'POST', body));
   }
   if (response.status === 409 && ['HOST_TRUST_REQUIRED', 'HOST_KEY_CHANGED'].includes(value.code)) {
+    if (automatic) return { state: value.code === 'HOST_KEY_CHANGED' ? 'changed' : 'untrusted', error: value.error, fingerprint: value.fingerprint };
+
     const previous = value.previousFingerprint ? '（原信任 ' + value.previousFingerprint + '）' : '';
     if (!confirm('SSH 主機指紋：' + value.fingerprint + previous + '。你已從可信管道核對此指紋嗎？')) {
-      throw Error('已拒絕主機指紋');
+      const reason = Error('已拒絕主機指紋');
+      reason.code = value.code;
+      throw reason;
     }
-    return checkHost(host, value.fingerprint);
+    return checkHost(host, { expectedFingerprint: value.fingerprint });
   }
   if (!response.ok) throw Error(value.error || 'SSH 檢查失敗');
   return value;
 }
 
-function startShell(host) {
+function startShell(host, { onState = () => {} } = {}) {
   const section = document.createElement('section');
   section.dataset.alias = host.alias;
   const heading = document.createElement('h3');
@@ -544,7 +596,7 @@ function startShell(host) {
   close.textContent = '關閉終端機';
   const terminalElement = document.createElement('div');
   terminalElement.className = 'sshdeck-terminal';
-  terminalElement.style.cssText = 'height:360px; min-width:320px; background:#111; padding:6px;';
+  terminalElement.style.cssText = 'height:360px; min-width:0; background:#111; padding:6px;';
   section.append(heading, close, terminalElement);
   shellSessions.prepend(section);
 
@@ -556,10 +608,29 @@ function startShell(host) {
   terminal.focus();
   let socket;
   let finished = false;
+  let readySettled = false;
+  let terminalDisposed = false;
+  let resolveReady;
+  let rejectReady;
+  const ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
+  const handle = {
+    ready,
+    fit: () => resize(),
+    close: () => {
+      if (finished) return;
+      finished = true;
+      resizeObserver.disconnect();
+      closeSocket();
+      if (!terminalDisposed) { terminalDisposed = true; terminal.dispose(); }
+      section.remove();
+      if (!readySettled) { readySettled = true; rejectReady(new Error('終端連線已中斷。')); }
+    },
+  };
   const closeSocket = () => {
     if (socket && socket.readyState < WebSocket.CLOSING) socket.close(1000, 'terminal closed');
   };
-  close.onclick = closeSocket;
+  close.onclick = handle.close;
+  onState('connecting');
 
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   socket = new WebSocket(protocol + '//' + location.host + '/api/shell?alias=' + encodeURIComponent(host.alias));
@@ -569,7 +640,7 @@ function startShell(host) {
   };
   const resize = () => {
     try { fit.fit(); sendControl({ type: 'resize', cols: terminal.cols, rows: terminal.rows }); }
-    catch { /* hidden or detached terminal */ }
+    catch { /* 終端機隱藏或已移除時，等待下一次尺寸更新。 */ }
   };
   const terminalEncoder = new TextEncoder();
   terminal.onData((data) => {
@@ -581,6 +652,7 @@ function startShell(host) {
 
   socket.onopen = resize;
   socket.onmessage = async (event) => {
+    if (finished) return;
     if (typeof event.data !== 'string') {
       terminal.write(new Uint8Array(event.data));
       return;
@@ -608,30 +680,52 @@ function startShell(host) {
       terminal.write('已連線。輸入 exit 或關閉此終端機結束工作階段。\\r\\n');
       resize();
       terminal.focus();
+      if (!readySettled) { readySettled = true; resolveReady(handle); }
+      onState('connected');
     } else if (message.type === 'error') {
       terminal.write('\\r\\nSSH 終端機錯誤：' + message.error + '\\r\\n');
+      if (!readySettled) { readySettled = true; rejectReady(new Error(message.error || 'SSH 終端機連線失敗')); }
+      onState('failed', message.error || 'SSH 終端機連線失敗');
+      handle.close();
     } else if (message.type === 'closed') {
       const detail = message.error ? '：' + message.error : message.code === undefined ? '' : '（結束狀態 ' + message.code + '）';
       terminal.write('\\r\\n終端機已關閉' + detail + '\\r\\n');
       finished = true;
       close.disabled = true;
       resizeObserver.disconnect();
+      section.remove();
+      if (!readySettled) { readySettled = true; rejectReady(new Error(message.error || '終端機在連線完成前已關閉')); }
+      onState('closed', message.error || '終端機已關閉');
     }
   };
-  socket.onerror = () => { terminal.write('\\r\\nWebSocket 終端機連線失敗。\\r\\n'); };
+  socket.onerror = () => {
+    if (finished) return;
+    terminal.write('\\r\\nWebSocket 終端機連線失敗。\\r\\n');
+    if (!readySettled) { readySettled = true; rejectReady(new Error('WebSocket 終端機連線失敗')); }
+    onState('failed', 'WebSocket 終端機連線失敗');
+    handle.close();
+  };
   socket.onclose = (event) => {
     if (!finished && event.code !== 1000) terminal.write('\\r\\n終端機連線中斷（' + event.code + '）。\\r\\n');
     finished = true;
     close.disabled = true;
     resizeObserver.disconnect();
+    section.remove();
+    if (!terminalDisposed) { terminalDisposed = true; terminal.dispose(); }
+    if (!readySettled) { readySettled = true; rejectReady(new Error('終端機連線在完成前中斷')); }
+    onState('closed', event.code === 1000 ? '終端機已中斷。' : '終端機連線已中斷。');
   };
+  return handle;
 }
 
 async function refresh() {
   const list = await send('/api/hosts');
-  hosts.replaceChildren();
+  window.sshdeck.setHosts(list);
+  selectedHostActions.replaceChildren();
+  const selectedHost = window.sshdeck.selectedHost;
   for (const host of list) {
-    const item = document.createElement('li');
+    if (selectedHost?.alias !== host.alias) continue;
+    const item = document.createElement('section');
     item.dataset.alias = host.alias;
     const state = host.check?.state === 'success' ? 'SSH 成功'
       : host.check?.state === 'failure' ? 'SSH 失敗'
@@ -650,16 +744,12 @@ async function refresh() {
     item.textContent = host.alias + ' — ' + host.username + '@' + host.hostname + ':' + host.port + '（SSH：' + state + '；Docker：' + dockerState + checked + '） ';
 
     const check = document.createElement('button');
-    check.textContent = '檢查 SSH';
+    check.textContent = '檢查 SSH 與 Docker';
     check.onclick = async () => {
       error.textContent = '';
-      try { await checkHost(host); await refresh(); }
+      try { await window.sshdeck.services.checkHost(host); await refresh(); }
       catch (reason) { error.textContent = reason.message; await refresh(); }
     };
-
-    const shell = document.createElement('button');
-    shell.textContent = '開啟互動終端機';
-    shell.onclick = () => startShell(host);
 
     const edit = document.createElement('button');
     edit.textContent = '編輯';
@@ -732,7 +822,7 @@ async function refresh() {
       } catch (reason) { error.textContent = reason.message; }
     };
 
-    item.append(check, shell, edit, remove, publicKey, guide, keyAction);
+    item.append(check, edit, remove, publicKey, guide, keyAction);
     if (host.keyPath && host.keyManaged) {
       const unlinkManaged = document.createElement('button');
       unlinkManaged.textContent = '解除此主機關聯';
@@ -746,10 +836,13 @@ async function refresh() {
       };
       item.append(unlinkManaged);
     }
-    hosts.append(item);
+    const heading = document.createElement('h3');
+    heading.textContent = '選定主機：' + host.alias + '（' + host.username + '@' + host.hostname + ':' + host.port + '）';
+    selectedHostActions.append(heading, item);
   }
-  const selector = document.querySelector('#exec-host');
-  selector.replaceChildren(...list.map((host) => { const option = document.createElement('option'); option.value = host.alias; option.textContent = host.alias + ' — ' + host.username + '@' + host.hostname; return option; }));
+  const execTargetHint = document.querySelector('#exec-target-hint');
+  execTargetHint.textContent = selectedHost ? '遠端命令目標：' + selectedHost.alias + '（' + selectedHost.username + '@' + selectedHost.hostname + ':' + selectedHost.port + '）' : '請先從主機列表選取操作目標。';
+  document.querySelector('#exec-form button').disabled = !selectedHost;
   const records = await send('/api/keys');
   managedKeys.replaceChildren();
   for (const record of records) {
@@ -826,7 +919,7 @@ async function runRemoteCommand(host, command, controller, output, expectedFinge
 document.querySelector('#exec-form').onsubmit = async (event) => {
   event.preventDefault();
   const sessions = document.querySelector('#exec-sessions');
-  const alias = document.querySelector('#exec-host').value;
+  const alias = window.sshdeck.selectedHost?.alias;
   const command = document.querySelector('#exec-command').value;
   if (!alias || !command.trim()) return;
   const host = (await send('/api/hosts')).find((item) => item.alias === alias);
@@ -848,26 +941,18 @@ document.querySelector('#exec-form').onsubmit = async (event) => {
   finally { cancel.disabled = true; }
 };
 
-form.onsubmit = async (event) => {
-  event.preventDefault();
-  error.textContent = '';
-  const host = Object.fromEntries(new FormData(form));
-  host.port = Number(host.port);
-  try {
-    await send('/api/hosts', 'POST', host);
-    form.reset();
-    form.elements.port.value = 22;
-    await refresh();
-  } catch (reason) { error.textContent = reason.message; }
-};
-
 document.querySelector('#lock-keys').onclick = async () => {
   try { await send('/api/lock', 'POST', {}); error.textContent = '已鎖定所有登入金鑰'; }
   catch (reason) { error.textContent = reason.message; }
 };
 
-refresh().catch((reason) => { error.textContent = reason.message; });
+window.sshdeck.configure({ request, send, unlock, checkHost, checkSSH: (host, options = {}) => checkHost(host, { ...options, automatic: true }), startShell, refresh, showKeyInfo, askNewKeyPassphrase });
+window.sshdeck.on('selectionchange', (event) => { if (event.detail.reason === 'select') window.sshdeck.services.refresh().catch((reason) => { error.textContent = reason.message; }); });
+refresh().catch((reason) => { error.textContent = reason.message; document.querySelector('#hosts-loading').textContent = '無法載入受管主機，請重新整理重試。'; });
 </script>
+<script src="/assets/terminal.js"></script>
+<script src="/assets/connection-guide.js"></script>
+</body>
 </html>`;
 
 function createServer({ dataFile, port }) {
@@ -884,6 +969,10 @@ function createServer({ dataFile, port }) {
       '/assets/xterm.js': [path.join(__dirname, '..', 'node_modules', '@xterm', 'xterm', 'lib', 'xterm.js'), 'text/javascript'],
       '/assets/xterm.css': [path.join(__dirname, '..', 'node_modules', '@xterm', 'xterm', 'css', 'xterm.css'), 'text/css'],
       '/assets/addon-fit.js': [path.join(__dirname, '..', 'node_modules', '@xterm', 'addon-fit', 'lib', 'addon-fit.js'), 'text/javascript'],
+      '/assets/workspace.js': [path.join(__dirname, '..', 'public', 'workspace.js'), 'text/javascript'],
+      '/assets/workspace.css': [path.join(__dirname, '..', 'public', 'workspace.css'), 'text/css'],
+      '/assets/terminal.js': [path.join(__dirname, '..', 'public', 'terminal.js'), 'text/javascript'],
+      '/assets/connection-guide.js': [path.join(__dirname, '..', 'public', 'connection-guide.js'), 'text/javascript'],
     };
     if (req.method === 'GET' && assets[req.url]) {
       const [file, contentType] = assets[req.url];
@@ -911,11 +1000,10 @@ function createServer({ dataFile, port }) {
     }
     if (req.method === 'GET' && req.url === '/api/hosts') {
       try {
-        const statuses = ssh.getStatuses(dataFile);
         return send(200, readHosts(dataFile).map((host) => ({
           ...host,
           keyManaged: ssh.isManagedKeyPath(dataFile, host.keyPath),
-          check: statuses[host.alias] || { state: 'unchecked' },
+          check: ssh.statusForHost(dataFile, host),
         })));
       } catch (error) { return send(500, { error: error.message }); }
     }
@@ -925,8 +1013,9 @@ function createServer({ dataFile, port }) {
       res.writeHead(204, { 'cache-control': 'no-store' });
       return res.end();
     }
-    const match = req.url.match(/^\/api\/hosts\/([^/?]+)(?:\/(check))?$/);
-    const checking = Boolean(match && match[2] === 'check');
+    const match = req.url.match(/^\/api\/hosts\/([^/?]+)(?:\/(check|ssh-check))?$/);
+    const checking = Boolean(match && ['check', 'ssh-check'].includes(match[2]));
+    const sshOnlyCheck = Boolean(match && match[2] === 'ssh-check');
     const keyActionMatch = req.url.match(/^\/api\/hosts\/([^/?]+)\/key\/(delete|unlink)$/);
     const managedKeyDelete = Boolean(managedKeyRoute && managedKeyRoute[2] === 'delete' && req.method === 'POST');
     const keyPublicMatch = req.url.match(/^\/api\/hosts\/([^/?]+)\/key\/public$/);
@@ -1069,7 +1158,9 @@ function createServer({ dataFile, port }) {
           const keyPath = ssh.keyPathFor(host);
           if (!unlockedKeys.has(keyPath)) return send(428, { code: 'NEEDS_UNLOCK', error: '請先解鎖此主機的登入金鑰' });
           try {
-            const result = await ssh.checkWithDocker(dataFile, host, unlockedKeys.get(keyPath), {
+            const result = sshOnlyCheck
+              ? await ssh.checkSSH(dataFile, host, unlockedKeys.get(keyPath), { ...(typeof input.expectedFingerprint === 'string' ? { expectedFingerprint: input.expectedFingerprint } : {}) })
+              : await ssh.checkWithDocker(dataFile, host, unlockedKeys.get(keyPath), {
               ...(typeof input.expectedFingerprint === 'string' ? { expectedFingerprint: input.expectedFingerprint } : {}),
             });
             return send(200, result);
