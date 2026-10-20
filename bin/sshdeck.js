@@ -570,7 +570,9 @@ async function checkHost(host, options = {}) {
 
     const previous = value.previousFingerprint ? '（原信任 ' + value.previousFingerprint + '）' : '';
     if (!confirm('SSH 主機指紋：' + value.fingerprint + previous + '。你已從可信管道核對此指紋嗎？')) {
-      throw Error('已拒絕主機指紋');
+      const reason = Error('已拒絕主機指紋');
+      reason.code = value.code;
+      throw reason;
     }
     return checkHost(host, { expectedFingerprint: value.fingerprint });
   }
@@ -970,11 +972,10 @@ function createServer({ dataFile, port }) {
     }
     if (req.method === 'GET' && req.url === '/api/hosts') {
       try {
-        const statuses = ssh.getStatuses(dataFile);
         return send(200, readHosts(dataFile).map((host) => ({
           ...host,
           keyManaged: ssh.isManagedKeyPath(dataFile, host.keyPath),
-          check: statuses[host.alias] || { state: 'unchecked' },
+          check: ssh.statusForHost(dataFile, host),
         })));
       } catch (error) { return send(500, { error: error.message }); }
     }

@@ -8,7 +8,7 @@
   let currentPage = 'hosts';
   let selectionRequest = 0;
   const checksInFlight = new Map();
-  const checkVersions = new Map();
+  const hostSnapshots = new Map();
   let pollTimer;
   const query = (selector) => document.querySelector(selector);
   const emit = (type, detail) => events.dispatchEvent(new CustomEvent(type, { detail }));
@@ -85,13 +85,7 @@
       const status = item.querySelector('.host-status');
       status.dataset.state = host.check?.pending ? 'pending' : (host.check?.state || 'unchecked');
       if (services.renderHostStatus) services.renderHostStatus(host, status);
-      else {
-        const state = host.check?.state === 'success' ? '最近 SSH 檢查成功'
-          : host.check?.state === 'failure' ? '最近 SSH 檢查失敗'
-            : host.check?.state === 'changed' ? '主機指紋已變更'
-              : host.check?.state === 'untrusted' ? '等待主機指紋確認' : '尚未完成 SSH 連線檢查';
-        status.textContent = state + (host.check?.checkedAt ? '；檢查時間：' + host.check.checkedAt : '') + '。不代表終端機已連線。';
-      }
+      else renderHostStatus(host, status);
       existing.delete(host.alias);
     }
     for (const item of existing.values()) item.remove();
@@ -102,7 +96,10 @@
 
   function setHosts(list) {
     const previous = selectedHost();
+    const changed = list.filter((host) => hostSnapshots.get(host.alias) !== hostSnapshot(host));
     hostList = list;
+    hostSnapshots.clear();
+    for (const host of hostList) hostSnapshots.set(host.alias, hostSnapshot(host));
     if (selectedAlias && !selectedHost()) {
       selectedAlias = null;
       selectionRequest++;
@@ -111,7 +108,41 @@
     }
     renderHosts();
     emit('hostschange', { hosts: hostList, selectedHost: selectedHost() });
-    if (!document.hidden) runChecks();
+    if (!document.hidden) runChecks(changed);
+  }
+
+  function hostSnapshot(host) {
+    return JSON.stringify([host.hostname, host.port, host.username, host.keyPath]);
+  }
+
+  function renderHostStatus(host, element) {
+    const check = host.check || {};
+    const labels = {
+      success: 'SSH 連線檢查成功',
+      failure: 'SSH 連線檢查失敗',
+      untrusted: '需要核對 SSH 主機指紋',
+      changed: 'SSH 主機指紋已變更，請重新核對',
+      'needs-unlock': '登入金鑰需要解鎖',
+      unchecked: '尚未檢查 SSH 連線',
+    };
+    const state = check.pending ? 'SSH 連線檢查中' : (labels[check.state] || labels.unchecked);
+    const details = check.pending && check.state && labels[check.state]
+      ? '；最近結果：' + labels[check.state]
+      : check.error ? '；' + check.error : '';
+    const checked = check.checkedAt ? '；最近檢查時間：' + check.checkedAt : '';
+    const action = ['needs-unlock', 'untrusted', 'changed'].includes(check.state)
+      ? '；選取此主機後可按「立即檢查」處理'
+      : '';
+    element.textContent = state + details + checked + action + '。此狀態不代表終端機已連線。';
+  }
+
+  function runChecks(hosts = hostList) {
+    if (document.hidden) return;
+    for (const host of hosts) {
+      if (!host.hostname || !host.port || !host.username || !host.keyPath) continue;
+      if (['needs-unlock', 'untrusted', 'changed'].includes(host.check?.state)) continue;
+      runCheck(host, true);
+    }
   }
 
   window.sshdeck = {
@@ -121,7 +152,7 @@
     get page() { return currentPage; },
     configure(adapters) { Object.assign(services, adapters); emit('ready', { services }); if (!pollTimer) { pollTimer = setInterval(() => { if (!document.hidden) runChecks(); }, 30000); document.addEventListener('visibilitychange', () => { if (!document.hidden) runChecks(); }); runChecks(); } },
     on(type, listener) { events.addEventListener(type, listener); return () => events.removeEventListener(type, listener); },
-    emit, showPage, selectHost, setHosts, renderHosts, reportError,
+    emit, showPage, selectHost, setHosts, renderHosts, renderHostStatus, reportError,
   };
 
   for (const name of ['hosts', 'guide']) query('#' + name + '-tab').onclick = () => showPage(name);
@@ -151,20 +182,28 @@
   };
   async function runCheck(host, automatic = true) {
     if (checksInFlight.has(host.alias)) return checksInFlight.get(host.alias);
-    const snapshot = JSON.stringify([host.hostname, host.port, host.username, host.keyPath]);
-    const version = checkVersions.get(host.alias) || 0;
+    const snapshot = hostSnapshot(host);
     const task = (async () => {
       host.check = { ...(host.check || {}), pending: true }; renderHosts();
       try {
         const result = automatic && services.checkSSH ? await services.checkSSH(host, { automatic: true }) : await services.checkHost(host);
-        if (!hostList.includes(host) || snapshot !== JSON.stringify([host.hostname, host.port, host.username, host.keyPath]) || version !== (checkVersions.get(host.alias) || 0)) return;
+        if (!hostList.includes(host) || snapshot !== hostSnapshot(host)) return;
+        if (!result) return;
         host.check = ['needs-unlock','untrusted','changed'].includes(result?.state) ? { ...result, checkedAt: host.check?.checkedAt } : { ...(result || {}), state: 'success', checkedAt: new Date().toLocaleString(), pending: false };
-      } catch (error) { if (!hostList.includes(host) || version !== (checkVersions.get(host.alias) || 0)) return; host.check = { state: 'failure', error: error.message, checkedAt: new Date().toLocaleString() }; }
+      } catch (error) {
+        if (!hostList.includes(host) || snapshot !== hostSnapshot(host)) return;
+        if (['HOST_TRUST_REQUIRED', 'HOST_KEY_CHANGED'].includes(error.code)) {
+          host.check = { state: error.code === 'HOST_KEY_CHANGED' ? 'changed' : 'untrusted', error: error.message, checkedAt: host.check?.checkedAt };
+        } else host.check = { state: 'failure', error: error.message, checkedAt: new Date().toLocaleString() };
+      }
       finally { if (hostList.includes(host)) { host.check = { ...host.check, pending: false }; renderHosts(); } }
-    })().finally(() => checksInFlight.delete(host.alias));
+    })().finally(() => {
+      checksInFlight.delete(host.alias);
+      const current = hostList.find((candidate) => candidate.alias === host.alias);
+      if (current && snapshot !== hostSnapshot(current) && !document.hidden) runChecks([current]);
+    });
     checksInFlight.set(host.alias, task); return task;
   }
-  function runChecks() { if (document.hidden) return; for (const host of hostList) if (host.hostname && host.port && host.username && host.keyPath) runCheck(host, true); }
   query('#check-selected-host').onclick = async () => {
     const host = selectedHost();
     if (!host) return;
