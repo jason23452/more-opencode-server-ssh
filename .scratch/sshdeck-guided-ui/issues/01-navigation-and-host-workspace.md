@@ -39,3 +39,4 @@ Spec: [SSH 主機操作介面與逐步建立指南](../spec.md)
 - `git diff --check` 通過。風險導向檢查已確認外部資料以 `textContent` 呈現、資產採明確 allowlist、分頁不重建 DOM、主機刷新不重設表單；新增主機完成後選中對應目標但不連線。
 - 後續模組介面與各票單掛載點見 [UI 模組接點](../../../docs/ui-modules.md)。02 可替換 `services.checkHost` 與狀態 renderer；03 可替換 `services.startShell`、加入選取 guard 並監聽主機移除／修改。
 - 整合注意：舊終端暫時保留既有多工作階段能力；單一終端中斷策略、完整狀態呈現、輪詢、四步指南與持久化由後續票單驗收。此票沒有將這些能力宣稱完成。
+- 整合分支 `spec/sshdeck-guided-ui` 已合併 `8265fc7`（merge commit `c48bba4`）；重新執行 `npm test` 為 18 通過、0 失敗、18 略過（01 Chromium test 在預設測試中略過），並另設 `SSHDECK_PLAYWRIGHT_MODULE` 執行 `node --test test/ui-workspace.test.js`，1 通過、0 失敗、0 略過。確認票單成果在整合分支可重現。
