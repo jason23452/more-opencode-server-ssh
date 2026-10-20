@@ -7,32 +7,67 @@
   const storageKey = 'sshdeck.connection-guide.v1';
   const state = { step: 0, alias: '', hostname: '', port: '22', username: '', keyPath: '', mode: 'new', host: null, publicKey: '', guide: '', createdKeyPath: null, authorized: false, checked: false, checkedAt: null, checkedFingerprint: null, checking: false, failure: null, storageUnavailable: false };
   const fingerprint = (h) => JSON.stringify([h.alias, h.hostname, Number(h.port), h.username, h.keyPath || null]);
-  const validRecord = (r) => !!r && typeof r.alias === 'string' && typeof r.hostname === 'string' && typeof r.username === 'string' && ['new', 'existing'].includes(r.mode);
+  const validRecord = (r) => !!r && typeof r.alias === 'string' && typeof r.hostname === 'string' && typeof r.username === 'string'
+    && Number.isInteger(Number(r.port)) && Number(r.port) >= 1 && Number(r.port) <= 65535
+    && ['new', 'existing'].includes(r.mode) && (r.keyPath === null || typeof r.keyPath === 'string')
+    && Number.isInteger(r.step) && r.step >= 0 && r.step <= 3
+    && typeof r.authorized === 'boolean' && typeof r.createdKey === 'boolean'
+    && (r.checkedAt === undefined || r.checkedAt === null || typeof r.checkedAt === 'string')
+    && (r.checkedFingerprint === undefined || r.checkedFingerprint === null || typeof r.checkedFingerprint === 'string');
+  function readSaved() {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return { version: 1, hosts: {}, draft: null, lastAlias: null };
+    const saved = JSON.parse(raw);
+    if (!saved || saved.version !== 1 || !saved.hosts || typeof saved.hosts !== 'object' || Array.isArray(saved.hosts)) throw new Error('指南進度資料格式錯誤');
+    if (Object.values(saved.hosts).some((record) => !validRecord(record)) || (saved.draft !== null && saved.draft !== undefined && !validRecord(saved.draft))) throw new Error('指南進度欄位格式錯誤');
+    return saved;
+  }
+  function syncStorageWarning() {
+    let warning = root.querySelector('.guide-storage-warning');
+    if (!state.storageUnavailable) { warning?.remove(); return; }
+    if (!warning) { warning = document.createElement('p'); warning.className = 'guide-storage-warning'; warning.setAttribute('role', 'status'); root.prepend(warning); }
+    warning.textContent = '瀏覽器儲存目前無法讀取或寫入；本次指南仍可繼續，但重新整理後無法保證接續。';
+  }
   function persist() {
     try {
-      const old = JSON.parse(localStorage.getItem(storageKey) || '{"version":1,"hosts":{},"draft":null}');
-      const record = { step: state.step, alias: state.alias, hostname: state.hostname, port: state.port, username: state.username, mode: state.mode === 'existing' ? 'existing' : 'new', authorized: !!state.authorized };
-      if (state.host) { old.hosts ||= {}; old.hosts[state.alias] = { ...record, checkedAt: state.checked && state.checkedFingerprint === fingerprint(state.host) ? state.checkedAt : null, checkedFingerprint: state.checked && state.checkedFingerprint === fingerprint(state.host) ? state.checkedFingerprint : null }; delete old.draft; }
+      const old = readSaved();
+      const record = { step: state.step, alias: state.alias, hostname: state.hostname, port: String(state.port), username: state.username, keyPath: state.host?.alias === state.alias ? state.host.keyPath || null : state.keyPath || null, mode: state.mode === 'existing' ? 'existing' : 'new', authorized: !!state.authorized, createdKey: !!(state.createdKeyPath && state.host?.keyPath === state.createdKeyPath) };
+      if (state.host && state.host.alias === state.alias) { old.hosts[state.alias] = { ...record, checkedAt: state.checked && state.checkedFingerprint === fingerprint(state.host) ? state.checkedAt : null, checkedFingerprint: state.checked && state.checkedFingerprint === fingerprint(state.host) ? state.checkedFingerprint : null }; delete old.draft; }
       else old.draft = record;
-      old.version = 1; localStorage.setItem(storageKey, JSON.stringify(old)); state.storageUnavailable = false;
-    } catch { state.storageUnavailable = true; }
+      old.version = 1; old.lastAlias = state.alias || null; localStorage.setItem(storageKey, JSON.stringify(old)); state.storageUnavailable = false; syncStorageWarning();
+    } catch { state.storageUnavailable = true; syncStorageWarning(); }
+  }
+  function applyRecord(record, host = null) {
+    Object.assign(state, { step: record.step, alias: record.alias, hostname: record.hostname, port: String(record.port), username: record.username, keyPath: record.keyPath || '', mode: record.mode, authorized: !!record.authorized, host, checked: false, checkedAt: null, checkedFingerprint: null, createdKeyPath: null });
+    if (!host) return;
+    const profileChanged = host.hostname !== record.hostname || Number(host.port) !== Number(record.port) || host.username !== record.username;
+    const keyChanged = (host.keyPath || null) !== (record.keyPath || null);
+    if (profileChanged || keyChanged) {
+      state.hostname = host.hostname; state.port = String(host.port); state.username = host.username;
+      state.keyPath = host.keyPath || record.keyPath || ''; state.mode = record.createdKey && host.keyPath ? 'new' : host.keyPath ? 'existing' : record.mode;
+      state.step = host.keyPath ? 2 : 1; state.authorized = false;
+    }
+    if (host.keyPath && record.createdKey && !keyChanged) state.createdKeyPath = host.keyPath;
+    if (record.mode === 'existing' && !host.keyPath) { state.step = 1; state.authorized = false; }
+    if (!profileChanged && !keyChanged && record.checkedAt && record.checkedFingerprint === fingerprint(host)) {
+      state.checked = true; state.checkedAt = record.checkedAt; state.checkedFingerprint = record.checkedFingerprint;
+    }
   }
   function restore() {
     try {
-      const text = localStorage.getItem(storageKey); if (!text) return;
-      const saved = JSON.parse(text); if (saved.version !== 1) throw new Error('unsupported storage version');
+      if (!document.querySelector('#hosts-loading')?.hidden) return;
+      const saved = readSaved();
       const hosts = Array.isArray(ui.hosts) ? ui.hosts : [];
-      const pair = Object.entries(saved.hosts || {}).map(([alias, r]) => ({ alias, r, h: hosts.find((h) => h.alias === alias) })).find((x) => x.h && validRecord(x.r));
-      const r = pair ? pair.r : validRecord(saved.draft) ? saved.draft : null; if (!r) return;
-      Object.assign(state, { step: Math.max(0, Math.min(3, r.step)), alias: r.alias, hostname: r.hostname, port: r.port, username: r.username, mode: r.mode, authorized: !!r.authorized });
-      if (pair) {
-        state.host = pair.h;
-        if (pair.h.hostname !== r.hostname || Number(pair.h.port) !== Number(r.port) || pair.h.username !== r.username) { state.step = 0; state.authorized = false; }
-        if (r.mode === 'existing' && pair.h.keyPath) state.keyPath = pair.h.keyPath;
-        const savedHost = saved.hosts[pair.alias];
-        if (savedHost.checkedAt && savedHost.checkedFingerprint === fingerprint(pair.h)) { state.checked = true; state.checkedAt = savedHost.checkedAt; state.checkedFingerprint = savedHost.checkedFingerprint; }
-        if (r.mode === 'existing' && !pair.h.keyPath) { state.step = 1; state.authorized = false; }
-      }
+      const existingAliases = new Set(hosts.map((h) => h.alias));
+      for (const alias of Object.keys(saved.hosts)) if (!existingAliases.has(alias)) delete saved.hosts[alias];
+      const preferDraft = validRecord(saved.draft) && (saved.draft.alias === saved.lastAlias || !saved.lastAlias);
+      const preferred = !preferDraft && saved.lastAlias && saved.hosts[saved.lastAlias];
+      const candidates = preferred ? [[saved.lastAlias, preferred], ...Object.entries(saved.hosts).filter(([alias]) => alias !== saved.lastAlias)] : Object.entries(saved.hosts);
+      const pair = preferDraft ? null : candidates.map(([alias, r]) => ({ alias, r, h: hosts.find((h) => h.alias === alias) })).find((x) => x.h && validRecord(x.r));
+      const draft = validRecord(saved.draft) ? saved.draft : null;
+      const r = pair ? pair.r : draft; if (!r) { localStorage.setItem(storageKey, JSON.stringify(saved)); return; }
+      applyRecord(r, pair?.h || null);
+      localStorage.setItem(storageKey, JSON.stringify(saved));
     } catch { try { localStorage.removeItem(storageKey); } catch {} state.storageUnavailable = true; }
   }
   const el = (tag, text, attrs = {}) => {
@@ -123,6 +158,7 @@
     return true;
   }
   async function prepareKey() {
+    state.preparingKey = true;
     try {
       if (!state.host) return false;
       if (state.mode === 'new') {
@@ -153,10 +189,47 @@
       if (state.mode === 'new') state.createdKeyPath = state.host.keyPath;
       return true;
     } catch (error) { state.failure = { friendly: '無法準備登入金鑰，請確認路徑與金鑰狀態後重試。', detail: error.message }; render(); return false; }
+    finally { state.preparingKey = false; }
+  }
+  function removeSavedHost(alias) {
+    try {
+      const saved = readSaved();
+      delete saved.hosts[alias];
+      if (saved.draft?.alias === alias) saved.draft = null;
+      if (saved.lastAlias === alias) saved.lastAlias = null;
+      localStorage.setItem(storageKey, JSON.stringify(saved));
+    } catch { state.storageUnavailable = true; }
+  }
+  function pruneSavedHosts() {
+    try {
+      const saved = readSaved();
+      const existing = new Set(ui.hosts.map((host) => host.alias));
+      let changed = false;
+      for (const alias of Object.keys(saved.hosts)) if (!existing.has(alias)) { delete saved.hosts[alias]; changed = true; }
+      if (changed) localStorage.setItem(storageKey, JSON.stringify(saved));
+    } catch { state.storageUnavailable = true; }
   }
   async function copy(text, buttonNode) {
     try { await navigator.clipboard.writeText(text); buttonNode.textContent = '已複製'; }
     catch { buttonNode.textContent = '複製失敗，請手動選取'; }
+  }
+  function resumeSaved(alias) {
+    try {
+      const saved = readSaved();
+      const record = saved.hosts[alias];
+      const host = ui.hosts.find((item) => item.alias === alias);
+      if (!validRecord(record) || !host) return;
+      applyRecord(record, host);
+      saved.lastAlias = alias;
+      localStorage.setItem(storageKey, JSON.stringify(saved));
+      state.storageUnavailable = false;
+    } catch { state.storageUnavailable = true; }
+    render();
+  }
+  function startNewGuide() {
+    Object.assign(state, { step: 0, alias: '', hostname: '', port: '22', username: '', keyPath: '', mode: 'new', host: null, publicKey: '', guide: '', createdKeyPath: null, authorized: false, checked: false, checkedAt: null, checkedFingerprint: null, failure: null });
+    persist();
+    render();
   }
   function classify(error) {
     const code = error.code || '';
@@ -187,7 +260,8 @@
     const progress = el('ol', undefined, { className: 'step-progress', 'aria-label': '指南進度' });
     steps.forEach((label, i) => progress.append(el('li', `${i + 1}. ${label}`, { 'aria-current': i === state.step ? 'step' : 'false' })));
     root.append(progress);
-    if (state.storageUnavailable) root.append(el('p', '瀏覽器儲存目前無法讀取或寫入；本次指南仍可繼續，但重新整理後無法保證接續。', { role: 'status', className: 'guide-storage-warning' }));
+    if (state.host || state.alias) root.append(button('開始新的建立指南', startNewGuide));
+      if (state.storageUnavailable) syncStorageWarning();
     const panel = el('section', undefined, { className: 'guide-step', 'aria-labelledby': 'guide-step-title' });
     panel.append(el('h3', `步驟 ${state.step + 1}：${steps[state.step]}`, { id: 'guide-step-title' }));
     if (state.failure) errorBox(panel, state.failure.friendly, state.failure.detail);
@@ -195,16 +269,25 @@
       panel.append(el('p', '目的：告訴 sshdeck 要連線的受管主機。你需要已有的登入管道，例如主機商網頁控制台或既有 SSH 登入。若沒有，請向主機商取得控制台或請管理者協助。'));
       const form = el('form');
       form.append(field('主機別名', 'alias', 'text', state.alias, '在 sshdeck 中辨識這台主機的名稱。'), field('主機位址', 'hostname', 'text', state.hostname, '例如 server.example.com 或 IP 位址。'), field('SSH 連接埠', 'port', 'number', state.port || '22', 'SSH 常用連接埠為 22。'), field('登入帳號', 'username', 'text', state.username, '遠端 Linux 帳號；請確認此帳號可透過既有管道登入。'));
-      form.addEventListener('input', (event) => { event.target.setCustomValidity(''); readValues(); state.checked = false; state.checkedAt = null; state.authorized = false; state.failure = null; persist(); });
+      form.addEventListener('input', (event) => { event.target.setCustomValidity(''); readValues(); if (state.host && (state.alias !== state.host.alias || state.hostname !== state.host.hostname || Number(state.port) !== Number(state.host.port) || state.username !== state.host.username)) state.host = null; state.checked = false; state.checkedAt = null; state.checkedFingerprint = null; state.authorized = false; state.failure = null; persist(); });
       panel.append(form, el('p', '完成後會新增或沿用相同設定的受管主機；不會因此自動開啟終端連線。'));
+      try {
+        const saved = readSaved();
+        const entries = Object.entries(saved.hosts).filter(([alias, record]) => validRecord(record) && ui.hosts.some((host) => host.alias === alias));
+        if (entries.length) {
+          const details = el('details'); details.append(el('summary', '接續其他受管主機的建立指南進度'));
+          for (const [alias, record] of entries) details.append(button(`接續 ${alias}（步驟 ${record.step + 1}）`, () => resumeSaved(alias)));
+          panel.append(details);
+        }
+      } catch { state.storageUnavailable = true; }
     } else if (state.step === 1) {
       panel.append(el('p', '目的：選擇 sshdeck 用來證明登入身分的登入金鑰。預設建立新的 Ed25519 金鑰。'));
-      const newLabel = el('label'); const newRadio = el('input', undefined, { type: 'radio', name: 'key-mode', value: 'new', checked: state.mode === 'new' }); newRadio.onchange = () => { state.mode = 'new'; state.checked = false; state.authorized = false; state.failure = null; state.publicKey = ''; state.guide = ''; render(); }; newLabel.append(newRadio, document.createTextNode(' 建立新的登入金鑰（建議）')); panel.append(newLabel);
+      const newLabel = el('label'); const newRadio = el('input', undefined, { type: 'radio', name: 'key-mode', value: 'new', checked: state.mode === 'new' }); newRadio.onchange = () => { state.mode = 'new'; state.checked = false; state.checkedAt = null; state.checkedFingerprint = null; state.authorized = false; state.failure = null; state.publicKey = ''; state.guide = ''; persist(); render(); }; newLabel.append(newRadio, document.createTextNode(' 建立新的登入金鑰（建議）')); panel.append(newLabel);
       const details = el('details'); details.open = state.mode === 'existing'; details.append(el('summary', '使用既有登入金鑰'));
-       const existingLabel = el('label'); const radio = el('input', undefined, { type: 'radio', name: 'key-mode', value: 'existing', checked: state.mode === 'existing' }); radio.onchange = () => { state.mode = 'existing'; state.checked = false; state.authorized = false; state.failure = null; state.publicKey = ''; state.guide = ''; render(); };
+       const existingLabel = el('label'); const radio = el('input', undefined, { type: 'radio', name: 'key-mode', value: 'existing', checked: state.mode === 'existing' }); radio.onchange = () => { state.mode = 'existing'; state.checked = false; state.checkedAt = null; state.checkedFingerprint = null; state.authorized = false; state.failure = null; state.publicKey = ''; state.guide = ''; persist(); render(); };
       existingLabel.append(radio, document.createTextNode(' 使用既有金鑰')); details.append(existingLabel);
       const keyPathField = field('私鑰路徑', 'keyPath', 'text', state.keyPath, '此路徑位於執行 sshdeck 的電腦，不是瀏覽器所在電腦，也不是遠端主機。');
-      keyPathField.querySelector('input').addEventListener('input', () => { state.checked = false; state.authorized = false; state.failure = null; });
+       keyPathField.querySelector('input').addEventListener('input', () => { readValues(); state.checked = false; state.checkedAt = null; state.checkedFingerprint = null; state.authorized = false; state.failure = null; persist(); });
       details.append(keyPathField);
       panel.append(details, el('p', '公鑰可提供給遠端帳號授權；私鑰留在執行 sshdeck 的電腦。密語用來保護私鑰，請勿把私鑰或密語貼進遠端指令或分享給他人。建立新金鑰時會以安全提示要求輸入並再次確認密語。'));
       if (state.publicKey) { panel.append(el('p', '預期結果：已取得公鑰，下一步可在遠端帳號中授權。')); const pre = el('pre', state.publicKey); panel.append(pre, button('複製公鑰', (event) => copy(state.publicKey, event.currentTarget))); }
@@ -229,12 +312,29 @@
   }
   restore();
   ui.on('hostschange', () => {
-    if (!state.host && state.alias) restore();
+    pruneSavedHosts();
+    if (!state.host) restore();
     if (state.host) {
       const current = ui.hosts.find((h) => h.alias === state.alias);
-      if (!current) { state.host = null; state.step = 0; state.checked = false; state.authorized = false; }
-      else { if (fingerprint(current) !== fingerprint(state.host)) { state.checked = false; state.checkedAt = null; state.checkedFingerprint = null; state.authorized = false; if (!current.keyPath && state.step > 1) state.step = 1; } state.host = current; }
-      persist();
+      if (!current) {
+        removeSavedHost(state.alias);
+        Object.assign(state, { host: null, step: 0, alias: '', hostname: '', port: '22', username: '', keyPath: '', mode: 'new', publicKey: '', guide: '', createdKeyPath: null, authorized: false, checked: false, checkedAt: null, checkedFingerprint: null, failure: null });
+      } else {
+        const changed = fingerprint(current) !== fingerprint(state.host);
+        if (changed) {
+          const keyChanged = (current.keyPath || null) !== (state.host.keyPath || null);
+          state.checked = false; state.checkedAt = null; state.checkedFingerprint = null; state.authorized = false;
+          state.hostname = current.hostname; state.port = String(current.port); state.username = current.username;
+          state.keyPath = current.keyPath || state.keyPath;
+          if (!state.preparingKey) {
+            state.createdKeyPath = null;
+            if (keyChanged && current.keyPath) state.mode = 'existing';
+            state.step = current.keyPath ? 2 : 1;
+          }
+        }
+        state.host = current;
+        persist();
+      }
     }
     render();
   });
