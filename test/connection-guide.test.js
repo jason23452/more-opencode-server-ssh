@@ -48,6 +48,16 @@ test('建立指南驗證四步流程、新舊金鑰、授權及主動檢查結�
     assert.match(await page.locator('#guide-step-title').textContent(), /步驟 3/);
     assert.match(await page.locator('#connection-guide-app pre').textContent(), /ssh-ed25519/);
     assert.doesNotMatch(await page.locator('#connection-guide-app').innerText(), /遠端撤銷/);
+    await page.getByLabel(/我已在目標 Linux 主機嘗試完成授權/).check();
+    await page.getByRole('button', { name: '下一步' }).click();
+    await page.getByRole('button', { name: '上一步' }).click();
+    await page.getByRole('button', { name: '上一步' }).click();
+    await page.locator('summary', { hasText: '使用既有登入金鑰' }).click();
+    await page.getByLabel('使用既有金鑰').check();
+    await page.locator('[name="keyPath"]').fill(existingKey.keyPath);
+    await page.getByRole('button', { name: '下一步' }).click();
+    await page.locator('#guide-step-title').filter({ hasText: '步驟 3' }).waitFor();
+    assert.equal(await page.locator('#connection-guide-app input[type="checkbox"]').isChecked(), false, '更換登入金鑰後需重新確認遠端授權');
     await page.setViewportSize({ width: 320, height: 800 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -84,6 +94,10 @@ test('建立指南驗證四步流程、新舊金鑰、授權及主動檢查結�
     assert.equal(await page.locator('body').innerText().then((value) => value.includes('test passphrase')), false);
 
     // Existing-key flow: the path belongs to the sshdeck process host; no secret enters persistent browser storage.
+    await page.evaluate(async (keyPath) => fetch('/api/hosts', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ alias: 'existing-guide', hostname: 'example.invalid', port: 22, username: 'bob', keyPath }),
+    }), existingKey.keyPath);
     await page.reload();
     await page.getByRole('tab', { name: '建立指南' }).click();
     await page.locator('[name="alias"]').fill('existing-guide');
@@ -91,7 +105,8 @@ test('建立指南驗證四步流程、新舊金鑰、授權及主動檢查結�
     await page.locator('[name="username"]').fill('bob');
     await page.getByRole('button', { name: '下一步' }).click();
     await page.locator('#guide-step-title').filter({ hasText: '步驟 2' }).waitFor();
-    await page.locator('summary', { hasText: '使用既有登入金鑰' }).click();
+    assert.equal(await page.locator('input[name="key-mode"][value="existing"]').isChecked(), true, '已關聯登入金鑰的主機應明確沿用既有金鑰');
+    assert.equal(await page.locator('[name="keyPath"]').inputValue(), existingKey.keyPath);
     await page.getByLabel('使用既有金鑰').check();
     await page.locator('[name="keyPath"]').fill(existingKey.keyPath);
     assert.match(await page.locator('#connection-guide-app').textContent(), /執行 sshdeck 的電腦/);

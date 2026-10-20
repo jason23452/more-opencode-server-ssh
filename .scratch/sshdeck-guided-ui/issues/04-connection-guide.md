@@ -35,3 +35,5 @@ Spec: [SSH 主機操作介面與逐步建立指南](../spec.md)
 驗證：`npm ci` 成功；設定 `SSHDECK_PLAYWRIGHT_MODULE` 指向外部 Playwright 後，`node --test test/connection-guide.test.js` 真實 Chromium 測試通過，覆蓋欄位驗證／別名衝突／步驟往返、新舊金鑰與執行端路徑、指令複製／保留 authorized_keys／窄螢幕、未完成手動授權不可前進、檢查失敗及技術資訊、SSH 成功（Docker unavailable）後選取主機且不自動啟動終端，並核對密語未進頁面或 localStorage。完整 `npm test` 最終通過：25 passed、17 skipped（需外部 SSH/Docker 測試主機的既有整合測試）、0 failed。所有變更 JS `node --check` 及 `git diff --check` 通過。
 
 提交：本票變更已提交，訊息為「實作四步 SSH 建立指南」。
+
+整合風險檢查補充：已關聯登入金鑰的既有主機會清楚選取「使用既有登入金鑰」，避免 UI 顯示建立新金鑰卻靜默沿用舊金鑰；切換金鑰模式會重設遠端授權確認，必須重新確認授權。Chromium 測試覆蓋已設定金鑰的既有主機及建立新金鑰後切換模式的授權重設。實際 SSH 成功／失敗仍由受控 adapter 替身驗證，外部 SSH/Docker 整合測試需另外配置隔離測試主機。

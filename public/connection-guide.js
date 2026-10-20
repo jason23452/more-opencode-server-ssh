@@ -4,7 +4,7 @@
   const services = ui.services;
   const root = document.querySelector('#connection-guide-app');
   const steps = ['連線資料', '登入金鑰', '遠端授權', '檢查連線'];
-  const state = { step: 0, alias: '', hostname: '', port: '22', username: '', keyPath: '', mode: 'new', host: null, publicKey: '', guide: '', authorized: false, checked: false, checking: false, failure: null };
+  const state = { step: 0, alias: '', hostname: '', port: '22', username: '', keyPath: '', mode: 'new', host: null, publicKey: '', guide: '', createdKeyPath: null, authorized: false, checked: false, checking: false, failure: null };
   const el = (tag, text, attrs = {}) => {
     const node = document.createElement(tag);
     if (text !== undefined) node.textContent = text;
@@ -76,6 +76,10 @@
         root.querySelector('[name="alias"]').reportValidity(); return false;
       }
       state.host = duplicate;
+      if (duplicate.keyPath && !state.keyPath && duplicate.keyPath !== state.createdKeyPath) {
+        state.mode = 'existing';
+        state.keyPath = duplicate.keyPath;
+      }
       if (state.keyPath && duplicate.keyPath !== state.keyPath) {
         await services.send('/api/hosts/' + encodeURIComponent(state.alias), 'PUT', { ...duplicate, keyPath: state.keyPath });
       }
@@ -89,11 +93,19 @@
   async function prepareKey() {
     try {
       if (!state.host) return false;
-      if (state.mode === 'new' && !state.host.keyPath) {
-        const passphrase = await services.askNewKeyPassphrase();
-        if (passphrase === null) return false;
-        const result = await services.send('/api/hosts/' + encodeURIComponent(state.alias) + '/key', 'POST', { passphrase });
-        state.publicKey = result.publicKey; state.guide = result.guide;
+      if (state.mode === 'new') {
+        if (state.host.keyPath && state.host.keyPath !== state.createdKeyPath) {
+          state.failure = { friendly: '此受管主機已關聯登入金鑰。請展開「使用既有登入金鑰」沿用它，或先到進階管理解除關聯。', detail: '' }; render(); return false;
+        }
+        if (!state.host.keyPath) {
+          const passphrase = await services.askNewKeyPassphrase();
+          if (passphrase === null) return false;
+          const result = await services.send('/api/hosts/' + encodeURIComponent(state.alias) + '/key', 'POST', { passphrase });
+          state.publicKey = result.publicKey; state.guide = result.guide;
+        } else {
+          const result = await services.send('/api/hosts/' + encodeURIComponent(state.alias) + '/guide');
+          state.publicKey = result.publicKey; state.guide = result.guide;
+        }
       } else {
         if (state.mode === 'existing' && !state.keyPath) {
           state.failure = { friendly: '請輸入 sshdeck 所在電腦上的登入金鑰路徑。', detail: '' }; render(); return false;
@@ -106,6 +118,7 @@
       }
       await services.refresh();
       state.host = ui.hosts.find((h) => h.alias === state.alias) || state.host;
+      if (state.mode === 'new') state.createdKeyPath = state.host.keyPath;
       return true;
     } catch (error) { state.failure = { friendly: '無法準備登入金鑰，請確認路徑與金鑰狀態後重試。', detail: error.message }; render(); return false; }
   }
@@ -152,9 +165,9 @@
       panel.append(form, el('p', '完成後會新增或沿用相同設定的受管主機；不會因此自動開啟終端連線。'));
     } else if (state.step === 1) {
       panel.append(el('p', '目的：選擇 sshdeck 用來證明登入身分的登入金鑰。預設建立新的 Ed25519 金鑰。'));
-      const newLabel = el('label'); const newRadio = el('input', undefined, { type: 'radio', name: 'key-mode', value: 'new', checked: state.mode === 'new' }); newRadio.onchange = () => { state.mode = 'new'; state.checked = false; state.failure = null; render(); }; newLabel.append(newRadio, document.createTextNode(' 建立新的登入金鑰（建議）')); panel.append(newLabel);
+      const newLabel = el('label'); const newRadio = el('input', undefined, { type: 'radio', name: 'key-mode', value: 'new', checked: state.mode === 'new' }); newRadio.onchange = () => { state.mode = 'new'; state.checked = false; state.authorized = false; state.failure = null; state.publicKey = ''; state.guide = ''; render(); }; newLabel.append(newRadio, document.createTextNode(' 建立新的登入金鑰（建議）')); panel.append(newLabel);
       const details = el('details'); details.open = state.mode === 'existing'; details.append(el('summary', '使用既有登入金鑰'));
-      const existingLabel = el('label'); const radio = el('input', undefined, { type: 'radio', name: 'key-mode', value: 'existing', checked: state.mode === 'existing' }); radio.onchange = () => { state.mode = 'existing'; state.checked = false; state.failure = null; render(); };
+       const existingLabel = el('label'); const radio = el('input', undefined, { type: 'radio', name: 'key-mode', value: 'existing', checked: state.mode === 'existing' }); radio.onchange = () => { state.mode = 'existing'; state.checked = false; state.authorized = false; state.failure = null; state.publicKey = ''; state.guide = ''; render(); };
       existingLabel.append(radio, document.createTextNode(' 使用既有金鑰')); details.append(existingLabel);
       const keyPathField = field('私鑰路徑', 'keyPath', 'text', state.keyPath, '此路徑位於執行 sshdeck 的電腦，不是瀏覽器所在電腦，也不是遠端主機。');
       keyPathField.querySelector('input').addEventListener('input', () => { state.checked = false; state.authorized = false; state.failure = null; });
