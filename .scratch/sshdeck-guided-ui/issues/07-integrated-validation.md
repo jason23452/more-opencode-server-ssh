@@ -16,7 +16,7 @@ Spec: [SSH 主機操作介面與逐步建立指南](../spec.md)
 - [x] 驗證指南刷新／重載、多主機進度選取與隔離、草稿轉為主機進度；未重複建立主機或金鑰。
 - [x] 驗證 A 至 B 切換確認／取消、切換中關閉待連線工作階段、分頁保留終端、主機輸入路由隔離，以及頁面可見性輪詢。
 - [x] 驗證連線設定變更、金鑰解除與主機刪除後，狀態燈、指南進度、選取及終端生命週期一致。
-- [x] Chromium 驗證桌面與 320／375px 窄螢幕、鍵盤導覽、長指令不造成整頁橫向溢出、文字／顏色狀態、複製授權指南與單次命令輸出／取消。
+- [x] Chromium 驗證桌面與 320／375px 窄螢幕、鍵盤導覽、長指令不造成整頁橫向溢出、文字／顏色狀態、複製授權指南與單次命令輸出／取消；另以桌面 Chromium 截圖視覺檢查主機列表、選定主機進階入口及指南步驟層級。
 - [x] 執行既有主機 CRUD、金鑰、單次命令、Docker 診斷與終端相關自動回歸；17 項需要外部 SSH／Docker 測試主機的測試保持略過，未對遠端主機做人工連線。
 - [ ] 風險導向審查涵蓋需求符合度、敏感資訊保存、指紋信任、輪詢請求與跨主機輸入／輸出；發現問題已修正並驗證。
 - [x] spec 各驗收條件均對應實作票單與驗證證據；外部 SSH／Docker 整合測試由使用者自行決定是否手動驗證，未偽報通過。
@@ -32,5 +32,6 @@ Spec: [SSH 主機操作介面與逐步建立指南](../spec.md)
 - 固定範圍基準：整合分支建立時的 `dev` SHA `44705d7b6c2bc3ccde3bf20bbf6d0c45ef2a5bf1`；待審查範圍為整合分支上 01–06 全部票單及必要修正。各 ticket worktree/commit 均已合併至 `spec/sshdeck-guided-ui`。
 - 設定 `SSHDECK_PLAYWRIGHT_MODULE=C:/Users/andt3/AppData/Local/Temp/opencode/sshdeck-ui-browser-tools/node_modules/playwright` 後執行 `npm test`：44 項中 27 通過、17 略過、0 失敗。略過項目需要外部隔離 SSH／Docker 測試主機；依使用者指示未執行任何人工遠端連線測試。
 - 瀏覽器測試使用受控 Chromium API／WebSocket 替身，涵蓋指南建立與接續、解鎖／指紋互動、輪詢、終端切換、單次命令、管理入口、狹窄版面與鍵盤操作；真正 SSH／Docker daemon 成功與失敗未宣稱已驗證。
+- 以 Chromium desktop 截圖檢視主機列表、展開後的選定主機進階管理及建立指南第一步，確認無主機資訊區多餘的停用複製按鈕、進階入口與全域金鑰入口不重複，步驟欄位分組清楚；截圖存於 `C:/Users/andt3/AppData/Local/Temp/opencode/sshdeck-{hosts,advanced,guide}-review2.png`。此為介面人工視覺檢查，不代表新手使用者研究。
 - `node --check` 涵蓋 `bin/sshdeck.js`、`public/workspace.js`、`public/terminal.js`、`public/connection-guide.js`、`lib/ssh.js`；`git diff --check` 通過。
 - Standards／Spec 雙軸風險導向審查待執行；完成後補上基準／審查 SHA、覆蓋結果、發現及修正證據。
