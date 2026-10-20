@@ -5,10 +5,51 @@
 ## 執行需求與安裝
 
 - Node.js 20 以上；SSH 用戶端採用純 JavaScript 的 `ssh2` 套件。
+- 正式版透過 GitHub Release 的公開 HTTPS 下載安裝，不需 GitHub 登入或安裝 Git；安裝時仍需連線 npm registry 取得相依套件。
+
+安裝或更新至最新正式版（首次 Release 發佈完成後可用）：
+
+```sh
+npm install -g https://github.com/jason23452/more-opencode-server-ssh/releases/latest/download/sshdeck.tgz
+sshdeck ui
+```
+
+安裝指定版本（例如 `v0.1.0`）：
+
+```sh
+npm install -g https://github.com/jason23452/more-opencode-server-ssh/releases/download/v0.1.0/sshdeck.tgz
+```
+
+也可從 [Releases](https://github.com/jason23452/more-opencode-server-ssh/releases) 下載 `sshdeck.tgz`，再執行 `npm install -g ./sshdeck.tgz`。每版附有 `SHA256SUMS` 可核對下載檔。這是 Node.js CLI 套件，執行時需要已安裝 Node.js。
+
+### 從原始碼執行
+
 - 從下載／clone 的專案根目錄執行 `npm ci` 安裝相依套件；不需發佈至公開 npm registry。
 - 可直接執行 `node bin/sshdeck.js host list` 或 `node bin/sshdeck.js ui`。
 - 也可在專案根目錄執行 `npm install -g .` 安裝 CLI，之後使用 `sshdeck host list` 或 `sshdeck ui`。
 - 執行測試：`npm test`。若未設定下方整合測試環境變數，SSH／Docker E2E 測試會標示 skipped。
+
+### 使用 tag 發版
+
+GitHub Actions 在推送 `v*` tag 後核對 tag 與 `package.json` 版本、執行測試、打包並驗證 CLI 全域安裝，成功後自動建立 Release 與公開下載附件。僅接受 `v主版.次版.修訂版` 正式版；測試所需的遠端 SSH fixture 未設定時，相關 E2E 仍會 skipped。套件僅包含執行所需的 `bin/`、`lib/`、`public/` 與 npm 自動收錄的套件說明檔。
+
+首次發佈目前的 `0.1.0`（先提交本次發版流程）：
+
+```sh
+git push origin master
+git tag -a v0.1.0 -m "發佈 v0.1.0"
+git push origin v0.1.0
+```
+
+後續發版先在乾淨的 `master` 更新版本；`npm version patch` 會同步更新 `package.json`、`package-lock.json` 並建立 commit 與 tag：
+
+```sh
+npm version patch -m "發佈 v%s"
+git push origin master
+git push origin v0.1.1
+```
+
+次版／主版可改用 `npm version minor`／`npm version major`，推送對應的新 tag。每個版本使用新的 tag；可在 GitHub Actions 的 `Release CLI` 查看結果。`private: true` 僅防止誤發佈至 npm registry，不影響 HTTPS tarball 安裝。
 
 完整整合測試只能連接**專用且可丟棄的 Linux SSH/Docker fixture**，不可指向使用者的正式主機或共用生產 Docker daemon。測試會以專用帳號連線、暫時變更 fixture 內測試帳號的 Docker 群組，並只建立／刪除唯一 `sshdeck-test-ticket06-*` 測試容器；Docker 權限測試亦會透過受測 SSH fixture 操作名為 `sshdeck-test-ssh` 的容器群組設定。不要使用真實私鑰或生產 Docker 環境。
 

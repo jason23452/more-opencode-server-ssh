@@ -1,0 +1,55 @@
+name: Release CLI
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: 核對 tag 與套件版本
+        run: |
+          node -e 'const v = require("./package.json").version; if (!/^\d+\.\d+\.\d+$/.test(v) || process.env.GITHUB_REF_NAME !== `v${v}`) throw new Error("Tag 必須為 v加上 package.json 的正式版本號");'
+      - run: npm ci
+      - run: npm test
+      - name: 打包與安裝驗證
+        run: |
+          mkdir -p dist
+          npm pack --pack-destination dist
+          mv dist/sshdeck-*.tgz dist/sshdeck.tgz
+          npm install --global ./dist/sshdeck.tgz
+          SSHDECK_HOME="$RUNNER_TEMP/sshdeck-smoke" sshdeck host list
+          cd dist
+          sha256sum sshdeck.tgz > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-release
+          path: dist/
+          if-no-files-found: error
+
+  release:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: cli-release
+          path: dist
+      - name: 發佈 GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" dist/sshdeck.tgz dist/SHA256SUMS --verify-tag --generate-notes --title "$RELEASE_TAG"

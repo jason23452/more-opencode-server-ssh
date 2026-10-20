@@ -2,6 +2,15 @@
   "name": "sshdeck",
   "version": "0.1.0",
   "private": true,
+  "files": [
+    "bin/",
+    "lib/",
+    "public/"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jason23452/more-opencode-server-ssh.git"
+  },
   "description": "跨平台本機 SSH 主機管理工具",
   "engines": {
     "node": ">=20"
