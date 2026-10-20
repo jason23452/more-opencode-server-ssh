@@ -50,6 +50,8 @@ input, select { border: 1px solid #8293a8; border-radius: .3rem; background: whi
 .guide-step > p { max-width: 75ch; }
 .guide-step form { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); }
 .guide-step label { margin: .5rem 0; }
+.guide-step .guide-key-choice { display: flex; align-items: center; gap: .5rem; }
+.guide-step .guide-key-choice input { flex: 0 0 auto; }
 .guide-navigation { display: flex; gap: .6rem; margin-top: 1rem; }
 .guide-error { padding: .5rem; border-left: 4px solid #b42318; background: #fff3df; }
 .guide-step pre { max-height: 22rem; }

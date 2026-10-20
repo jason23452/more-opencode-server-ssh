@@ -351,7 +351,7 @@ const page = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width">
 <link rel="stylesheet" href="/assets/xterm.css">
-<link rel="stylesheet" href="/assets/workspace.css">
+<link rel="stylesheet" href="/assets/workspace.css?v=2">
 <title>sshdeck 主機設定</title>
 <body>
 <a class="skip-link" href="#main">跳到主要內容</a>
@@ -424,7 +424,7 @@ const page = `<!doctype html>
   <label id="guide-username-label" hidden>指南中的遠端使用者名稱 <input id="guide-username" autocomplete="off"></label>
   <pre id="key-output"></pre>
   <button id="copy-public-key" type="button" disabled>複製公鑰</button>
-  <button id="copy-guide" type="button" disabled>複製授權指南</button>
+  <button id="copy-guide" type="button" disabled>複製授權指令</button>
 </section>
 </main>
 <script src="/assets/xterm.js"></script>
@@ -542,6 +542,10 @@ function renderKeyInfo() {
   keyOutput.textContent = (currentPublicKey ? '公鑰：\\n' + currentPublicKey + '\\n\\n' : '') + guide;
 }
 
+function shellCommands(text) {
+  return text.split(/\\r?\\n/).filter((line) => /^ {2,}\\S/.test(line)).map((line) => line.trim()).join('\\n');
+}
+
 guideUsername.addEventListener('input', renderKeyInfo);
 
 copyPublicKey.onclick = async () => {
@@ -550,8 +554,8 @@ copyPublicKey.onclick = async () => {
 };
 
 copyGuide.onclick = async () => {
-  try { await navigator.clipboard.writeText(currentGuide); error.textContent = '已複製授權指南'; }
-  catch (reason) { error.textContent = '無法複製指南，請手動選取複製'; }
+  try { await navigator.clipboard.writeText(shellCommands(currentGuide.split(/\\n遠端撤銷/)[0])); error.textContent = '已複製授權指令'; }
+  catch (reason) { error.textContent = '無法複製指令，請手動選取複製'; }
 };
 
 async function unlock(host) {
@@ -951,7 +955,7 @@ window.sshdeck.on('selectionchange', (event) => { if (event.detail.reason === 's
 refresh().catch((reason) => { error.textContent = reason.message; document.querySelector('#hosts-loading').textContent = '無法載入受管主機，請重新整理重試。'; });
 </script>
 <script src="/assets/terminal.js"></script>
-<script src="/assets/connection-guide.js"></script>
+<script src="/assets/connection-guide.js?v=2"></script>
 </body>
 </html>`;
 
@@ -974,9 +978,10 @@ function createServer({ dataFile, port }) {
       '/assets/terminal.js': [path.join(__dirname, '..', 'public', 'terminal.js'), 'text/javascript'],
       '/assets/connection-guide.js': [path.join(__dirname, '..', 'public', 'connection-guide.js'), 'text/javascript'],
     };
-    if (req.method === 'GET' && assets[req.url]) {
-      const [file, contentType] = assets[req.url];
-      res.writeHead(200, { 'content-type': `${contentType}; charset=utf-8`, 'cache-control': 'public, max-age=3600' });
+    const assetPath = new URL(req.url, 'http://localhost').pathname;
+    if (req.method === 'GET' && assets[assetPath]) {
+      const [file, contentType] = assets[assetPath];
+      res.writeHead(200, { 'content-type': `${contentType}; charset=utf-8`, 'cache-control': 'no-store' });
       fs.createReadStream(file).pipe(res);
       return;
     }

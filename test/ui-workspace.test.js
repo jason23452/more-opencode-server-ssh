@@ -3,11 +3,34 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const vm = require('node:vm');
 const { startUi } = require('../bin/sshdeck.js');
 const ssh = require('../lib/ssh');
 
 // 使用外部安裝的 Playwright，避免只為介面驗證增加執行期相依套件。
 const browserModule = process.env.SSHDECK_PLAYWRIGHT_MODULE;
+test('建立指南資源使用版本網址並停用瀏覽器快取', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sshdeck-assets-'));
+  const server = await startUi({ port: 0, dataFile: path.join(directory, 'hosts.json'), openBrowser: async () => {}, log: () => {} });
+  try {
+    const page = await fetch(server.url);
+    const html = await page.text();
+    assert.match(html, /workspace\.css\?v=2/);
+    assert.match(html, /connection-guide\.js\?v=2/);
+    const inlineScript = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+    assert.ok(inlineScript, '頁面包含初始化服務的內嵌腳本');
+    assert.doesNotThrow(() => new vm.Script(inlineScript), '伺服器輸出的內嵌腳本必須可解析');
+    for (const asset of ['/assets/workspace.css?v=2', '/assets/connection-guide.js?v=2']) {
+      const response = await fetch(new URL(asset, server.url));
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+    }
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('工作區保留選取與輸入，分頁不重建終端，窄螢幕可用鍵盤導覽', {
   skip: browserModule ? false : '設定 SSHDECK_PLAYWRIGHT_MODULE 為 playwright 模組路徑以執行瀏覽器驗證。',
 }, async () => {
@@ -55,9 +78,9 @@ test('工作區保留選取與輸入，分頁不重建終端，窄螢幕可用�
     assert.equal(await page.locator('#exec-form').isVisible(), true);
     await page.evaluate(() => { Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text) => { window.copiedGuide = text; } } }); });
     await page.locator('#selected-host-actions').getByRole('button', { name: '授權／撤銷指南' }).click();
-    await page.getByRole('button', { name: '複製授權指南' }).click();
+    await page.getByRole('button', { name: '複製授權指令' }).click();
     assert.match(await page.evaluate(() => window.copiedGuide), /authorized_keys/);
-    assert.match(await page.evaluate(() => window.copiedGuide), /Docker 權限指南/);
+    assert.doesNotMatch(await page.evaluate(() => window.copiedGuide), /手動安裝|登入帳號：|Docker 權限指南|遠端撤銷/);
     await page.route('**/api/exec', (route) => route.fulfill({
       status: 200,
       headers: { 'content-type': 'application/x-ndjson' },
