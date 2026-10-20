@@ -381,17 +381,22 @@ const page = `<!doctype html>
     <dl class="target-info"><dt>主機位址</dt><dd id="target-address"></dd><dt>登入帳號</dt><dd id="target-username"></dd></dl>
     <div id="host-actions"><button id="connect-host" type="button">連線</button><button id="check-selected-host" type="button">立即檢查</button></div>
     <div id="terminal-workspace"><h3>SSH 互動終端機</h3><p id="terminal-status" role="status">尚未開啟終端機</p><div id="shell-sessions"></div></div>
-    <details id="advanced-management"><summary>進階管理</summary><div id="advanced-host-actions"><button id="open-legacy-management" type="button">開啟既有主機與金鑰管理</button></div></details>
-  </section>
-  <details id="legacy-management"><summary>既有主機與金鑰管理</summary>
-    <p>此處保留主機編輯、授權指南與金鑰管理操作。</p>
-    <ul id="host-management"></ul>
-    <button id="lock-keys" type="button">鎖定已解鎖金鑰</button>
-    <h3>本機管理金鑰</h3><ul id="managed-keys"></ul>
-    <h3>遠端單次命令</h3>
-    <form id="exec-form"><label>主機別名 <select id="exec-host"></select></label><label>遠端命令 <input id="exec-command" required></label><button>執行</button></form>
-    <div id="exec-sessions" aria-live="polite"></div>
-  </details>
+     <details id="advanced-management"><summary>進階管理</summary>
+       <div id="advanced-host-actions">
+         <div id="selected-host-actions"></div>
+         <details id="advanced-exec"><summary>對選定主機執行單次遠端命令</summary>
+           <p id="exec-target-hint" role="status"></p>
+           <form id="exec-form"><label>遠端命令 <input id="exec-command" required></label><button>執行</button></form>
+           <div id="exec-sessions" aria-live="polite"></div>
+         </details>
+         <button id="open-legacy-management" type="button">全域登入金鑰管理</button>
+       </div>
+     </details>
+   </section>
+   <details id="legacy-management"><summary>全域登入金鑰管理</summary>
+     <button id="lock-keys" type="button">鎖定已解鎖金鑰</button>
+     <h3>本機管理金鑰</h3><ul id="managed-keys"></ul>
+   </details>
 </section>
 <section id="guide-panel" role="tabpanel" aria-labelledby="guide-tab" tabindex="-1" hidden>
 <h2>建立指南</h2>
@@ -419,13 +424,14 @@ const page = `<!doctype html>
   <label id="guide-username-label" hidden>指南中的遠端使用者名稱 <input id="guide-username" autocomplete="off"></label>
   <pre id="key-output"></pre>
   <button id="copy-public-key" type="button" disabled>複製公鑰</button>
+  <button id="copy-guide" type="button" disabled>複製授權指南</button>
 </section>
 </main>
 <script src="/assets/xterm.js"></script>
 <script src="/assets/addon-fit.js"></script>
 <script src="/assets/workspace.js"></script>
 <script>
-const hosts = document.querySelector('#host-management');
+const selectedHostActions = document.querySelector('#selected-host-actions');
 const managedKeys = document.querySelector('#managed-keys');
 const shellSessions = document.querySelector('#shell-sessions');
 const error = document.querySelector('#error');
@@ -438,6 +444,7 @@ const newKeyPassphrase = document.querySelector('#new-key-passphrase');
 const confirmKeyPassphrase = document.querySelector('#confirm-key-passphrase');
 const keyOutput = document.querySelector('#key-output');
 const copyPublicKey = document.querySelector('#copy-public-key');
+const copyGuide = document.querySelector('#copy-guide');
 const guideUsernameLabel = document.querySelector('#guide-username-label');
 const guideUsername = document.querySelector('#guide-username');
 let currentPublicKey = '';
@@ -523,6 +530,7 @@ function showKeyInfo(publicKey, guide = '') {
   }
   renderKeyInfo();
   copyPublicKey.disabled = !currentPublicKey;
+  copyGuide.disabled = !currentGuide;
 }
 
 function renderKeyInfo() {
@@ -537,6 +545,11 @@ guideUsername.addEventListener('input', renderKeyInfo);
 copyPublicKey.onclick = async () => {
   try { await navigator.clipboard.writeText(currentPublicKey); error.textContent = '已複製公鑰'; }
   catch (reason) { error.textContent = '無法複製公鑰，請手動選取複製'; }
+};
+
+copyGuide.onclick = async () => {
+  try { await navigator.clipboard.writeText(currentGuide); error.textContent = '已複製授權指南'; }
+  catch (reason) { error.textContent = '無法複製指南，請手動選取複製'; }
 };
 
 async function unlock(host) {
@@ -706,9 +719,11 @@ function startShell(host, { onState = () => {} } = {}) {
 async function refresh() {
   const list = await send('/api/hosts');
   window.sshdeck.setHosts(list);
-  hosts.replaceChildren();
+  selectedHostActions.replaceChildren();
+  const selectedHost = window.sshdeck.selectedHost;
   for (const host of list) {
-    const item = document.createElement('li');
+    if (selectedHost?.alias !== host.alias) continue;
+    const item = document.createElement('section');
     item.dataset.alias = host.alias;
     const state = host.check?.state === 'success' ? 'SSH 成功'
       : host.check?.state === 'failure' ? 'SSH 失敗'
@@ -727,22 +742,11 @@ async function refresh() {
     item.textContent = host.alias + ' — ' + host.username + '@' + host.hostname + ':' + host.port + '（SSH：' + state + '；Docker：' + dockerState + checked + '） ';
 
     const check = document.createElement('button');
-    check.textContent = '檢查 SSH';
+    check.textContent = '檢查 SSH 與 Docker';
     check.onclick = async () => {
       error.textContent = '';
       try { await window.sshdeck.services.checkHost(host); await refresh(); }
       catch (reason) { error.textContent = reason.message; await refresh(); }
-    };
-
-    const shell = document.createElement('button');
-    shell.textContent = '開啟互動終端機';
-    shell.onclick = async () => {
-      try {
-        if (await window.sshdeck.selectHost(host.alias)) {
-          window.sshdeck.showPage('hosts');
-          await window.sshdeck.services.startShell(window.sshdeck.selectedHost);
-        }
-      } catch (reason) { error.textContent = reason.message; }
     };
 
     const edit = document.createElement('button');
@@ -816,7 +820,7 @@ async function refresh() {
       } catch (reason) { error.textContent = reason.message; }
     };
 
-    item.append(check, shell, edit, remove, publicKey, guide, keyAction);
+    item.append(check, edit, remove, publicKey, guide, keyAction);
     if (host.keyPath && host.keyManaged) {
       const unlinkManaged = document.createElement('button');
       unlinkManaged.textContent = '解除此主機關聯';
@@ -830,12 +834,13 @@ async function refresh() {
       };
       item.append(unlinkManaged);
     }
-    hosts.append(item);
+    const heading = document.createElement('h3');
+    heading.textContent = '選定主機：' + host.alias + '（' + host.username + '@' + host.hostname + ':' + host.port + '）';
+    selectedHostActions.append(heading, item);
   }
-  const selector = document.querySelector('#exec-host');
-  const previousAlias = selector.value;
-  selector.replaceChildren(...list.map((host) => { const option = document.createElement('option'); option.value = host.alias; option.textContent = host.alias + ' — ' + host.username + '@' + host.hostname; return option; }));
-  if (list.some((host) => host.alias === previousAlias)) selector.value = previousAlias;
+  const execTargetHint = document.querySelector('#exec-target-hint');
+  execTargetHint.textContent = selectedHost ? '遠端命令目標：' + selectedHost.alias + '（' + selectedHost.username + '@' + selectedHost.hostname + ':' + selectedHost.port + '）' : '請先從主機列表選取操作目標。';
+  document.querySelector('#exec-form button').disabled = !selectedHost;
   const records = await send('/api/keys');
   managedKeys.replaceChildren();
   for (const record of records) {
@@ -912,7 +917,7 @@ async function runRemoteCommand(host, command, controller, output, expectedFinge
 document.querySelector('#exec-form').onsubmit = async (event) => {
   event.preventDefault();
   const sessions = document.querySelector('#exec-sessions');
-  const alias = document.querySelector('#exec-host').value;
+  const alias = window.sshdeck.selectedHost?.alias;
   const command = document.querySelector('#exec-command').value;
   if (!alias || !command.trim()) return;
   const host = (await send('/api/hosts')).find((item) => item.alias === alias);
@@ -940,6 +945,7 @@ document.querySelector('#lock-keys').onclick = async () => {
 };
 
 window.sshdeck.configure({ request, send, unlock, checkHost, checkSSH: (host, options = {}) => checkHost(host, { ...options, automatic: true }), startShell, refresh, showKeyInfo, askNewKeyPassphrase });
+window.sshdeck.on('selectionchange', (event) => { if (event.detail.reason === 'select') window.sshdeck.services.refresh().catch((reason) => { error.textContent = reason.message; }); });
 refresh().catch((reason) => { error.textContent = reason.message; document.querySelector('#hosts-loading').textContent = '無法載入受管主機，請重新整理重試。'; });
 </script>
 <script src="/assets/terminal.js"></script>
