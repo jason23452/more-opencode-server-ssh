@@ -4,7 +4,37 @@
   const services = ui.services;
   const root = document.querySelector('#connection-guide-app');
   const steps = ['連線資料', '登入金鑰', '遠端授權', '檢查連線'];
-  const state = { step: 0, alias: '', hostname: '', port: '22', username: '', keyPath: '', mode: 'new', host: null, publicKey: '', guide: '', createdKeyPath: null, authorized: false, checked: false, checking: false, failure: null };
+  const storageKey = 'sshdeck.connection-guide.v1';
+  const state = { step: 0, alias: '', hostname: '', port: '22', username: '', keyPath: '', mode: 'new', host: null, publicKey: '', guide: '', createdKeyPath: null, authorized: false, checked: false, checkedAt: null, checkedFingerprint: null, checking: false, failure: null, storageUnavailable: false };
+  const fingerprint = (h) => JSON.stringify([h.alias, h.hostname, Number(h.port), h.username, h.keyPath || null]);
+  const validRecord = (r) => !!r && typeof r.alias === 'string' && typeof r.hostname === 'string' && typeof r.username === 'string' && ['new', 'existing'].includes(r.mode);
+  function persist() {
+    try {
+      const old = JSON.parse(localStorage.getItem(storageKey) || '{"version":1,"hosts":{},"draft":null}');
+      const record = { step: state.step, alias: state.alias, hostname: state.hostname, port: state.port, username: state.username, mode: state.mode === 'existing' ? 'existing' : 'new', authorized: !!state.authorized };
+      if (state.host) { old.hosts ||= {}; old.hosts[state.alias] = { ...record, checkedAt: state.checked && state.checkedFingerprint === fingerprint(state.host) ? state.checkedAt : null, checkedFingerprint: state.checked && state.checkedFingerprint === fingerprint(state.host) ? state.checkedFingerprint : null }; delete old.draft; }
+      else old.draft = record;
+      old.version = 1; localStorage.setItem(storageKey, JSON.stringify(old)); state.storageUnavailable = false;
+    } catch { state.storageUnavailable = true; }
+  }
+  function restore() {
+    try {
+      const text = localStorage.getItem(storageKey); if (!text) return;
+      const saved = JSON.parse(text); if (saved.version !== 1) throw new Error('unsupported storage version');
+      const hosts = Array.isArray(ui.hosts) ? ui.hosts : [];
+      const pair = Object.entries(saved.hosts || {}).map(([alias, r]) => ({ alias, r, h: hosts.find((h) => h.alias === alias) })).find((x) => x.h && validRecord(x.r));
+      const r = pair ? pair.r : validRecord(saved.draft) ? saved.draft : null; if (!r) return;
+      Object.assign(state, { step: Math.max(0, Math.min(3, r.step)), alias: r.alias, hostname: r.hostname, port: r.port, username: r.username, mode: r.mode, authorized: !!r.authorized });
+      if (pair) {
+        state.host = pair.h;
+        if (pair.h.hostname !== r.hostname || Number(pair.h.port) !== Number(r.port) || pair.h.username !== r.username) { state.step = 0; state.authorized = false; }
+        if (r.mode === 'existing' && pair.h.keyPath) state.keyPath = pair.h.keyPath;
+        const savedHost = saved.hosts[pair.alias];
+        if (savedHost.checkedAt && savedHost.checkedFingerprint === fingerprint(pair.h)) { state.checked = true; state.checkedAt = savedHost.checkedAt; state.checkedFingerprint = savedHost.checkedFingerprint; }
+        if (r.mode === 'existing' && !pair.h.keyPath) { state.step = 1; state.authorized = false; }
+      }
+    } catch { try { localStorage.removeItem(storageKey); } catch {} state.storageUnavailable = true; }
+  }
   const el = (tag, text, attrs = {}) => {
     const node = document.createElement(tag);
     if (text !== undefined) node.textContent = text;
@@ -36,7 +66,7 @@
     b.addEventListener('click', action);
     return b;
   }
-  function go(step) { readValues(); state.step = step; render(); }
+  function go(step) { readValues(); state.step = step; persist(); render(); }
   function addNavigation(content) {
     const nav = el('div', undefined, { className: 'guide-navigation' });
     if (state.step > 0) nav.append(button('上一步', () => go(state.step - 1)));
@@ -76,6 +106,7 @@
         root.querySelector('[name="alias"]').reportValidity(); return false;
       }
       state.host = duplicate;
+      persist();
       if (duplicate.keyPath && !state.keyPath && duplicate.keyPath !== state.createdKeyPath) {
         state.mode = 'existing';
         state.keyPath = duplicate.keyPath;
@@ -87,6 +118,7 @@
       return true;
     }
     state.host = await services.send('/api/hosts', 'POST', { alias: state.alias, hostname: state.hostname, port, username: state.username, ...(state.mode === 'existing' && state.keyPath ? { keyPath: state.keyPath } : {}) });
+    persist();
     await services.refresh();
     return true;
   }
@@ -143,17 +175,19 @@
       const host = ui.hosts.find((h) => h.alias === state.alias) || state.host;
       const result = await services.checkHost(host);
       if (!result) { const error = new Error('NEEDS_UNLOCK'); error.code = 'NEEDS_UNLOCK'; throw error; }
-      state.checked = true;
+      state.host = ui.hosts.find((h) => h.alias === state.alias) || host;
+      state.checked = true; state.checkedAt = new Date().toISOString(); state.checkedFingerprint = fingerprint(state.host);
     } catch (error) {
-      state.checked = false;
+      state.checked = false; state.checkedAt = null; state.checkedFingerprint = null;
       state.failure = { friendly: classify(error), detail: error.message };
-    } finally { state.checking = false; await services.refresh(); render(); }
+    } finally { state.checking = false; await services.refresh(); persist(); render(); }
   }
   function render() {
     root.replaceChildren();
     const progress = el('ol', undefined, { className: 'step-progress', 'aria-label': '指南進度' });
     steps.forEach((label, i) => progress.append(el('li', `${i + 1}. ${label}`, { 'aria-current': i === state.step ? 'step' : 'false' })));
     root.append(progress);
+    if (state.storageUnavailable) root.append(el('p', '瀏覽器儲存目前無法讀取或寫入；本次指南仍可繼續，但重新整理後無法保證接續。', { role: 'status', className: 'guide-storage-warning' }));
     const panel = el('section', undefined, { className: 'guide-step', 'aria-labelledby': 'guide-step-title' });
     panel.append(el('h3', `步驟 ${state.step + 1}：${steps[state.step]}`, { id: 'guide-step-title' }));
     if (state.failure) errorBox(panel, state.failure.friendly, state.failure.detail);
@@ -161,7 +195,7 @@
       panel.append(el('p', '目的：告訴 sshdeck 要連線的受管主機。你需要已有的登入管道，例如主機商網頁控制台或既有 SSH 登入。若沒有，請向主機商取得控制台或請管理者協助。'));
       const form = el('form');
       form.append(field('主機別名', 'alias', 'text', state.alias, '在 sshdeck 中辨識這台主機的名稱。'), field('主機位址', 'hostname', 'text', state.hostname, '例如 server.example.com 或 IP 位址。'), field('SSH 連接埠', 'port', 'number', state.port || '22', 'SSH 常用連接埠為 22。'), field('登入帳號', 'username', 'text', state.username, '遠端 Linux 帳號；請確認此帳號可透過既有管道登入。'));
-      form.addEventListener('input', (event) => { event.target.setCustomValidity(''); state.checked = false; state.authorized = false; state.failure = null; });
+      form.addEventListener('input', (event) => { event.target.setCustomValidity(''); readValues(); state.checked = false; state.checkedAt = null; state.authorized = false; state.failure = null; persist(); });
       panel.append(form, el('p', '完成後會新增或沿用相同設定的受管主機；不會因此自動開啟終端連線。'));
     } else if (state.step === 1) {
       panel.append(el('p', '目的：選擇 sshdeck 用來證明登入身分的登入金鑰。預設建立新的 Ed25519 金鑰。'));
@@ -180,19 +214,30 @@
       const installGuide = state.guide.split(/\n遠端撤銷/)[0];
       if (installGuide) { const pre = el('pre', installGuide); panel.append(pre, button('複製授權指令', (event) => copy(installGuide, event.currentTarget))); }
       panel.append(el('p', '此指令會保留 authorized_keys 中既有公鑰，不會以新內容覆蓋。建立帳號、設定檔案擁有者與權限需要 sudo 管理者權限；若你不是管理者，請將指令交由主機管理者在此 Linux 主機執行。完成手動操作只代表可以進入檢查，不代表授權已驗證成功。'));
-      const doneLabel = el('label'); const done = el('input', undefined, { type: 'checkbox', checked: state.authorized }); doneLabel.append(done, document.createTextNode(' 我已在目標 Linux 主機嘗試完成授權')); done.onchange = () => { state.authorized = done.checked; }; panel.append(doneLabel);
+      const doneLabel = el('label'); const done = el('input', undefined, { type: 'checkbox', checked: state.authorized }); doneLabel.append(done, document.createTextNode(' 我已在目標 Linux 主機嘗試完成授權')); done.onchange = () => { state.authorized = done.checked; persist(); }; panel.append(doneLabel);
     } else {
       panel.append(el('p', '目的：由 sshdeck 主動測試目前登入資料及金鑰能否建立 SSH 連線。檢查成功不代表終端機已連線；Docker 狀態不影響本指南完成。'));
       panel.append(el('p', `檢查目標：${state.alias}（${state.username}@${state.hostname}:${state.port}）`));
       if (state.checking) panel.append(el('p', '正在檢查 SSH 連線…', { role: 'status' }));
       if (state.failure) panel.append(button('回到連線資料', () => go(0)), button('回到登入金鑰', () => go(1)), button('回到遠端授權', () => go(2)));
       if (state.checked && !state.failure) {
-        panel.append(el('p', 'SSH 連線檢查成功！登入金鑰已可用。', { role: 'status' }));
+        panel.append(el('p', `SSH 連線檢查成功（${state.checkedAt ? new Date(state.checkedAt).toLocaleString() : '歷史結果'}）。這是歷史檢查，不代表終端機目前已連線。`, { role: 'status' }));
         panel.append(button('前往主機操作', async () => { if (await ui.selectHost(state.alias)) ui.showPage('hosts'); }));
       } else panel.append(button(state.checking ? '檢查中…' : '檢查連線', check, state.checking));
     }
     addNavigation(panel); root.append(panel);
   }
+  restore();
+  ui.on('hostschange', () => {
+    if (!state.host && state.alias) restore();
+    if (state.host) {
+      const current = ui.hosts.find((h) => h.alias === state.alias);
+      if (!current) { state.host = null; state.step = 0; state.checked = false; state.authorized = false; }
+      else { if (fingerprint(current) !== fingerprint(state.host)) { state.checked = false; state.checkedAt = null; state.checkedFingerprint = null; state.authorized = false; if (!current.keyPath && state.step > 1) state.step = 1; } state.host = current; }
+      persist();
+    }
+    render();
+  });
   services.readyGuide = true;
   render();
 })();
